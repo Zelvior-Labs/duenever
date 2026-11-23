@@ -7,9 +7,36 @@ interface GameArtProps {
 }
 
 export function GameArt({ game, className = '' }: GameArtProps) {
-  const { accentColor, bgPattern, artSeed, title, category } = game;
+  const category = game.category;
 
-  // Generate deterministic shapes based on seed & pattern
+  // Real rendered game art — used by Rocket Rampage (and any future game with assets)
+  if (game.art?.cardImage) {
+    return (
+      <div
+        className={`relative w-full h-full overflow-hidden select-none bg-neutral-950 ${className}`}
+        aria-hidden="true"
+      >
+        <img
+          src={game.art.cardImage}
+          alt=""
+          draggable={false}
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ objectPosition: '42% 55%' }}
+        />
+        {/* Subtle top/bottom framing so cards stay readable */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-black/10" />
+        <span className="absolute bottom-2 right-2 px-1.5 py-0.5 text-[10px] font-mono tracking-widest uppercase bg-black/80 text-neutral-300 rounded border border-neutral-700">
+          {category}
+        </span>
+      </div>
+    );
+  }
+
+  // Procedural fallback art for catalogue entries without rendered assets yet
+  const { accentColor } = game;
+  const bgPattern = game.bgPattern ?? 'grid';
+  const artSeed = game.artSeed ?? 7;
+
   const p1 = (artSeed * 17) % 100;
   const p2 = (artSeed * 31) % 100;
   const p3 = (artSeed * 47) % 100;

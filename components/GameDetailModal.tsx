@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Heart, X } from 'lucide-react';
 import { Game } from '@/lib/games';
 import { GameArt } from './GameArt';
-import { PlayableReactionGame } from './PlayableReactionGame';
+import { RocketRampageGame } from './RocketRampageGame';
 
 interface GameDetailModalProps {
   game: Game | null;
@@ -13,6 +13,8 @@ interface GameDetailModalProps {
   onToggleFavourite: (gameId: string) => void;
   onGameLaunched: (gameId: string) => void;
   triggerRef?: HTMLElement | null;
+  /** When true, launching the modal immediately starts the game (hero "Play now") */
+  autoLaunch?: boolean;
 }
 
 export function GameDetailModal({
@@ -22,6 +24,7 @@ export function GameDetailModal({
   onToggleFavourite,
   onGameLaunched,
   triggerRef,
+  autoLaunch = false,
 }: GameDetailModalProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [sheetTranslateY, setSheetTranslateY] = useState(0);
@@ -35,6 +38,18 @@ export function GameDetailModal({
     setSheetTranslateY(0);
   }, [game]);
 
+  // Hero "Play now" → skip the details step and jump straight into the game
+  // (onGameLaunched kept in a ref so parent re-renders can't re-trigger this)
+  const onGameLaunchedRef = useRef(onGameLaunched);
+  onGameLaunchedRef.current = onGameLaunched;
+
+  useEffect(() => {
+    if (game && autoLaunch) {
+      onGameLaunchedRef.current(game.id);
+      setIsPlaying(true);
+    }
+  }, [game, autoLaunch]);
+
   useEffect(() => {
     if (!game) return;
 
@@ -42,6 +57,8 @@ export function GameDetailModal({
     previouslyFocused.current = document.activeElement as HTMLElement;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isPlaying) return; // the running game owns the keyboard
+
       if (e.key === 'Escape') {
         e.preventDefault();
         onClose();
@@ -60,7 +77,7 @@ export function GameDetailModal({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [game, onClose]);
+  }, [game, onClose, isPlaying]);
 
   useEffect(() => {
     if (!game) return;
@@ -116,37 +133,33 @@ export function GameDetailModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-title"
-    >
+    <>
       <div
-        ref={modalRef}
-        onClick={e => e.stopPropagation()}
-        style={{
-          transform: sheetTranslateY > 0 ? `translateY(${sheetTranslateY}px)` : undefined,
-          transition: isDragging.current ? 'none' : 'transform 200ms ease-out',
-        }}
-        className="w-full max-w-2xl bg-neutral-900 border-t-2 sm:border-2 border-neutral-700 rounded-t-xl sm:rounded-xl shadow-2xl overflow-hidden font-sans text-neutral-100 max-h-[90vh] sm:max-h-[85vh] flex flex-col"
+        className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden"
+        onClick={onClose}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
       >
-        {/* Drag handle on mobile */}
         <div
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          className="sm:hidden w-full py-2.5 flex justify-center cursor-grab active:cursor-grabbing bg-neutral-950 border-b border-neutral-800"
+          ref={modalRef}
+          onClick={e => e.stopPropagation()}
+          style={{
+            transform: sheetTranslateY > 0 ? `translateY(${sheetTranslateY}px)` : undefined,
+            transition: isDragging.current ? 'none' : 'transform 200ms ease-out',
+          }}
+          className="w-full max-w-2xl bg-neutral-900 border-t-2 sm:border-2 border-neutral-700 rounded-t-xl sm:rounded-xl shadow-2xl overflow-hidden font-sans text-neutral-100 max-h-[90vh] sm:max-h-[85vh] flex flex-col"
         >
-          <div className="w-12 h-1.5 bg-neutral-700 rounded-full" />
-        </div>
-
-        {isPlaying ? (
-          <div className="p-4 sm:p-6 overflow-y-auto">
-            <PlayableReactionGame onBack={() => setIsPlaying(false)} />
+          {/* Drag handle on mobile */}
+          <div
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            className="sm:hidden w-full py-2.5 flex justify-center cursor-grab active:cursor-grabbing bg-neutral-950 border-b border-neutral-800"
+          >
+            <div className="w-12 h-1.5 bg-neutral-700 rounded-full" />
           </div>
-        ) : (
+
           <div className="overflow-y-auto flex-1 p-5 sm:p-6">
             {/* Header / Art banner */}
             <div className="relative w-full h-44 sm:h-52 rounded-lg border border-neutral-700 overflow-hidden mb-5">
@@ -242,8 +255,11 @@ export function GameDetailModal({
               )}
             </div>
           </div>
-        )}
+        </div>
       </div>
-    </div>
+
+      {/* Full-screen game overlay — sibling of the modal so `fixed` positioning isn't affected by the modal's backdrop-filter */}
+      {isPlaying && <RocketRampageGame onBack={() => setIsPlaying(false)} />}
+    </>
   );
 }

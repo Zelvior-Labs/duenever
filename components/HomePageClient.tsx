@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useTransition, useRef } from 'react';
-import { Dices, History, Trash2, X } from 'lucide-react';
+import { History, Trash2, X } from 'lucide-react';
 import { Game, GAMES, CATEGORIES, GameCategory } from '@/lib/games';
 import {
   getStoredFavourites,
@@ -34,6 +34,7 @@ export function HomePageClient() {
   const [settings, setSettings] = useState<Settings>(getStoredSettings());
 
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+  const [autoLaunch, setAutoLaunch] = useState(false);
   const [clickedCardRef, setClickedCardRef] = useState<HTMLElement | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -120,9 +121,11 @@ export function HomePageClient() {
     });
   };
 
-  const handleRandomPick = () => {
-    const randomGame = GAMES[Math.floor(Math.random() * GAMES.length)];
-    setSelectedGame(randomGame);
+  const featuredGame = useMemo(() => GAMES.find(g => g.featured) ?? GAMES[0], []);
+
+  const playFeaturedNow = () => {
+    setAutoLaunch(true);
+    setSelectedGame(featuredGame);
   };
 
   const updateSettings = (newSettings: Settings) => {
@@ -201,23 +204,43 @@ export function HomePageClient() {
       />
 
       <main id="main-content" className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-6 flex flex-col gap-8">
-        {/* Compact Introduction */}
-        <section className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-neutral-800 pb-6">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight font-sans text-neutral-100">
-              Pick something.
-            </h1>
-            <p className="text-xs sm:text-sm font-mono text-neutral-400 mt-1">
-              Browser games for bored people. No installs, no signups.
-            </p>
-          </div>
+        {/* Featured hero — real rendered key art */}
+        <section className="relative overflow-hidden rounded-xl border-2 border-neutral-800 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.7)] min-h-[250px] sm:min-h-[300px] flex">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/games/rocket-rampage/banner.jpg"
+            alt="Rocket Rampage key art — a rocket blazing through an asteroid field pursued by alien fighters"
+            draggable={false}
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent" aria-hidden="true" />
 
-          <button
-            onClick={handleRandomPick}
-            className="group px-4 py-2.5 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono text-xs font-bold rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.2)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 active:scale-95 transition-all cursor-pointer flex items-center gap-2"
-          >
-            <Dices className="w-4 h-4" /> <span>Pick for me</span>
-          </button>
+          <div className="relative z-10 flex flex-col justify-center gap-3 p-6 sm:p-10 max-w-xl">
+            <span className="w-fit px-2 py-0.5 bg-[#CCFF00] text-black font-mono text-[10px] font-bold rounded tracking-wider uppercase shadow-xs">
+              ★ New · Featured
+            </span>
+            <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight font-sans text-neutral-50 drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)]">
+              Rocket Rampage
+            </h1>
+            <p className="text-xs sm:text-sm font-mono text-neutral-300 max-w-md leading-relaxed drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">
+              Shred asteroids with auto-cannons, outgun alien fighters, and survive escalating
+              waves. Your high score is the only thing due.
+            </p>
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <button
+                onClick={playFeaturedNow}
+                className="px-5 py-2.5 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono text-xs font-bold rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 active:scale-95 transition-all cursor-pointer"
+              >
+                ▶ Play now
+              </button>
+              <button
+                onClick={() => setSelectedGame(featuredGame)}
+                className="px-4 py-2.5 bg-neutral-900/85 border border-neutral-600 text-neutral-200 font-mono text-xs rounded-lg hover:bg-neutral-800 transition-colors cursor-pointer"
+              >
+                Game details
+              </button>
+            </div>
+          </div>
         </section>
 
         {/* Recently Played Section (Renders ONLY when real local history exists) */}
@@ -390,11 +413,15 @@ export function HomePageClient() {
       {/* Game Details Modal / Sheet */}
       <GameDetailModal
         game={selectedGame}
-        onClose={() => setSelectedGame(null)}
+        onClose={() => {
+          setSelectedGame(null);
+          setAutoLaunch(false);
+        }}
         isFavourite={selectedGame ? favourites.includes(selectedGame.id) : false}
         onToggleFavourite={toggleFavourite}
         onGameLaunched={handleGameLaunched}
         triggerRef={clickedCardRef}
+        autoLaunch={autoLaunch}
       />
 
       {/* Command Menu (Ctrl+K) */}

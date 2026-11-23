@@ -1,0 +1,1326 @@
+'use client';
+
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Pause, Play, Rocket as RocketIcon, Trophy, Volume2, VolumeX, X } from 'lucide-react';
+import { getStoredSettings } from '@/lib/storage';
+
+/* ------------------------------------------------------------------ */
+/* Constants                                                           */
+/* ------------------------------------------------------------------ */
+
+const W = 900; // logical playfield width
+const H = 560; // logical playfield height
+const BEST_KEY = 'duenever_rocket_best_v1';
+const MUTE_KEY = 'duenever_rocket_muted_v1';
+
+const PLAYER_SPEED = 350;
+const PLAYER_R = 16;
+const BULLET_SPEED = 620;
+const FIRE_COOLDOWN = 0.16;
+const BURST_COOLDOWN = 2.2;
+const MAX_LIVES = 3;
+const INVULN_TIME = 2.2;
+const WAVE_EVERY = 25;
+
+const ROCK_TIERS = [
+  { draw: 104, r: 44, hp: 3, score: 20 }, // large  → splits
+  { draw: 64, r: 27, hp: 2, score: 15 }, // medium → splits
+  { draw: 36, r: 15, hp: 1, score: 10 }, // small
+] as const;
+
+const ENEMY_R = 24;
+const ENEMY_SCORE = 40;
+
+const ASSET_SRC = {
+  rocket: '/games/rocket-rampage/rocket.png',
+  asteroid: '/games/rocket-rampage/asteroid.png',
+  enemy: '/games/rocket-rampage/enemy.png',
+} as const;
+
+type AssetKey = keyof typeof ASSET_SRC;
+type GameAssets = Partial<Record<AssetKey, HTMLImageElement>>;
+
+/* ------------------------------------------------------------------ */
+/* Star field (module-level so menu & pause screens keep drifting)     */
+/* ------------------------------------------------------------------ */
+
+const STAR_LAYERS = [
+  { n: 60, speed: 22, size: 1.0, alpha: 0.35 },
+  { n: 40, speed: 50, size: 1.6, alpha: 0.55 },
+  { n: 24, speed: 95, size: 2.3, alpha: 0.9 },
+];
+
+const STARS = STAR_LAYERS.map((l) => ({
+  ...l,
+  stars: Array.from({ length: l.n }, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    a: 0.5 + Math.random() * 0.5,
+  })),
+}));
+
+/* ------------------------------------------------------------------ */
+/* Sound synth (WebAudio, no assets)                                   */
+/* ------------------------------------------------------------------ */
+
+class Sfx {
+  private ctx: AudioContext | null = null;
+  private noiseBuf: AudioBuffer | null = null;
+  muted = false;
+
+  ensure() {
+    if (typeof window === 'undefined') return;
+    if (!this.ctx) {
+      const AC =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AC) return;
+      this.ctx = new AC();
+      const buf = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * 0.5), this.ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      this.noiseBuf = buf;
+    }
+    if (this.ctx.state === 'suspended') void this.ctx.resume();
+  }
+
+  private tone(type: OscillatorType, f0: number, f1: number, dur: number, vol: number) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(f0, t);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+  }
+
+  private noise(dur: number, freq: number, vol: number) {
+    if (!this.ctx || this.muted || !this.noiseBuf) return;
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(freq, t);
+    filter.frequency.exponentialRampToValueAtTime(120, t + dur);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ctx.destination);
+    src.start(t);
+    src.stop(t + dur);
+  }
+
+  laser() {
+    this.tone('square', 880, 190, 0.08, 0.035);
+  }
+  burst() {
+    this.tone('sawtooth', 620, 140, 0.16, 0.05);
+  }
+  foeLaser() {
+    this.tone('sawtooth', 300, 110, 0.14, 0.03);
+  }
+  boom(size: number) {
+    this.noise(0.3 + size * 0.02, 1400, 0.15);
+    this.tone('triangle', 120, 35, 0.3, 0.11);
+  }
+  bigBoom() {
+    this.noise(0.6, 900, 0.22);
+    this.tone('triangle', 90, 28, 0.5, 0.16);
+  }
+  hurt() {
+    this.tone('sawtooth', 220, 55, 0.28, 0.12);
+    this.noise(0.25, 800, 0.1);
+  }
+  pickup() {
+    this.tone('sine', 660, 660, 0.07, 0.07);
+    window.setTimeout(() => this.tone('sine', 990, 990, 0.12, 0.07), 70);
+  }
+  wave() {
+    this.tone('square', 440, 440, 0.09, 0.04);
+    window.setTimeout(() => this.tone('square', 660, 660, 0.14, 0.04), 90);
+  }
+  close() {
+    void this.ctx?.close().catch(() => undefined);
+    this.ctx = null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* World model                                                         */
+/* ------------------------------------------------------------------ */
+
+type Status = 'loading' | 'menu' | 'playing' | 'paused' | 'gameover';
+
+interface Player {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  tilt: number;
+  cool: number;
+  burstCool: number;
+  burstReq: boolean;
+  inv: number;
+}
+
+interface Bolt {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  friendly: boolean;
+  dead: boolean;
+}
+
+interface Rock {
+  tier: 0 | 1 | 2;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  rot: number;
+  vr: number;
+  hp: number;
+  r: number;
+  size: number;
+  hit: number;
+}
+
+interface Foe {
+  baseX: number;
+  amp: number;
+  freq: number;
+  t: number;
+  x: number;
+  y: number;
+  vy: number;
+  hp: number;
+  r: number;
+  hit: number;
+  fireT: number;
+}
+
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  size: number;
+  color: string;
+  ring: boolean;
+  maxR: number;
+}
+
+interface Drop {
+  x: number;
+  y: number;
+  vy: number;
+  dead: boolean;
+}
+
+interface Pop {
+  x: number;
+  y: number;
+  text: string;
+  life: number;
+}
+
+interface World {
+  player: Player;
+  rocks: Rock[];
+  foes: Foe[];
+  bolts: Bolt[];
+  parts: Particle[];
+  pops: Pop[];
+  drops: Drop[];
+  score: number;
+  best: number;
+  lives: number;
+  elapsed: number;
+  wave: number;
+  waveBannerT: number;
+  waveTimer: number;
+  rockT: number;
+  foeT: number;
+  shake: number;
+  dying: number;
+  over: boolean;
+}
+
+interface Opts {
+  reducedMotion: boolean;
+  lowPerf: boolean;
+}
+
+interface IO {
+  keys: Set<string>;
+  pointer: { x: number; y: number; active: boolean };
+  sfx: Sfx;
+  opts: Opts;
+}
+
+/* ------------------------------------------------------------------ */
+/* Helpers                                                             */
+/* ------------------------------------------------------------------ */
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+const hit = (x1: number, y1: number, r1: number, x2: number, y2: number, r2: number) => {
+  const dx = x1 - x2;
+  const dy = y1 - y2;
+  const rr = r1 + r2;
+  return dx * dx + dy * dy < rr * rr;
+};
+
+const mkBolt = (x: number, y: number, vx: number, vy: number, friendly: boolean): Bolt => ({
+  x,
+  y,
+  vx,
+  vy,
+  friendly,
+  dead: false,
+});
+
+const pop = (x: number, y: number, text: string): Pop => ({ x, y, text, life: 0.9 });
+
+function readBest(): number {
+  try {
+    return parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function createWorld(): World {
+  return {
+    player: {
+      x: W / 2,
+      y: H - 90,
+      vx: 0,
+      vy: 0,
+      tilt: 0,
+      cool: 0.3,
+      burstCool: 0,
+      burstReq: false,
+      inv: 1.2,
+    },
+    rocks: [],
+    foes: [],
+    bolts: [],
+    parts: [],
+    pops: [],
+    drops: [],
+    score: 0,
+    best: readBest(),
+    lives: MAX_LIVES,
+    elapsed: 0,
+    wave: 1,
+    waveBannerT: 2,
+    waveTimer: WAVE_EVERY,
+    rockT: 0.6,
+    foeT: 0,
+    shake: 0,
+    dying: 0,
+    over: false,
+  };
+}
+
+const EXPLOSION_COLORS = ['#FFA03C', '#FFE08A', '#FF5A3C', '#FFFFFF'];
+
+function spark(w: World, x: number, y: number, opts: Opts) {
+  const n = opts.reducedMotion ? 2 : 4;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 60 + Math.random() * 120;
+    w.parts.push({
+      x,
+      y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life: 0.18 + Math.random() * 0.12,
+      maxLife: 0.3,
+      size: 1.6 + Math.random() * 1.8,
+      color: i % 2 ? '#9FE8FF' : '#FFE08A',
+      ring: false,
+      maxR: 0,
+    });
+  }
+}
+
+function explode(w: World, x: number, y: number, size: number, opts: Opts, sfx: Sfx) {
+  const n = opts.reducedMotion ? 8 : Math.round(10 + size * 0.22);
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 50 + Math.random() * (60 + size * 2.4);
+    const life = 0.4 + Math.random() * 0.35;
+    w.parts.push({
+      x,
+      y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life,
+      maxLife: life,
+      size: 2 + Math.random() * 3.5,
+      color: EXPLOSION_COLORS[Math.floor(Math.random() * EXPLOSION_COLORS.length)],
+      ring: false,
+      maxR: 0,
+    });
+  }
+  w.parts.push({
+    x,
+    y,
+    vx: 0,
+    vy: 0,
+    life: 0.35,
+    maxLife: 0.35,
+    size: 0,
+    color: '#FFC46B',
+    ring: true,
+    maxR: size * 1.15,
+  });
+  w.shake = Math.min(22, w.shake + size * 0.16);
+  sfx.boom(size);
+}
+
+function spawnRock(w: World) {
+  const tier: 0 | 1 | 2 =
+    w.elapsed < 14
+      ? Math.random() < 0.85
+        ? 0
+        : 1
+      : Math.random() < 0.58
+        ? 0
+        : Math.random() < 0.8
+          ? 1
+          : 2;
+  const t = ROCK_TIERS[tier];
+  w.rocks.push({
+    tier,
+    x: 40 + Math.random() * (W - 80),
+    y: -70,
+    vx: (Math.random() - 0.5) * 70,
+    vy: Math.min(210, 75 + w.elapsed * 1.6 + Math.random() * 55),
+    rot: Math.random() * Math.PI * 2,
+    vr: (Math.random() - 0.5) * 3,
+    hp: t.hp,
+    r: t.r,
+    size: t.draw,
+    hit: 0,
+  });
+}
+
+function spawnFoe(w: World) {
+  const amp = 55 + Math.random() * 95;
+  const baseX = amp + 20 + Math.random() * Math.max(60, W - amp * 2 - 40);
+  w.foes.push({
+    baseX,
+    amp,
+    freq: 1.4 + Math.random() * 1.2,
+    t: Math.random() * 6,
+    x: baseX,
+    y: -70,
+    vy: Math.min(115, 62 + w.elapsed * 0.7),
+    hp: 3 + Math.floor(w.elapsed / 40),
+    r: ENEMY_R,
+    hit: 0,
+    fireT: 1.2 + Math.random(),
+  });
+}
+
+function destroyRock(w: World, r: Rock, sfx: Sfx, opts: Opts, noScore = false) {
+  const tier = ROCK_TIERS[r.tier];
+  explode(w, r.x, r.y, tier.draw * 0.6, opts, sfx);
+  if (!noScore) {
+    w.score += tier.score;
+    w.pops.push(pop(r.x, r.y, `+${tier.score}`));
+  }
+  if (r.tier < 2) {
+    for (const dir of [-1, 1] as const) {
+      const nt = (r.tier + 1) as 1 | 2;
+      const t2 = ROCK_TIERS[nt];
+      w.rocks.push({
+        tier: nt,
+        x: r.x,
+        y: r.y,
+        vx: dir * (55 + Math.random() * 70),
+        vy: Math.max(60, r.vy * (0.75 + Math.random() * 0.4)),
+        rot: Math.random() * Math.PI * 2,
+        vr: (Math.random() - 0.5) * 3.4,
+        hp: t2.hp,
+        r: t2.r,
+        size: t2.draw,
+        hit: 0,
+      });
+    }
+  } else if (!noScore && Math.random() < 0.12) {
+    w.drops.push({ x: r.x, y: r.y, vy: 95, dead: false });
+  }
+  r.hp = 0;
+}
+
+function destroyFoe(w: World, f: Foe, sfx: Sfx, opts: Opts, noScore = false) {
+  explode(w, f.x, f.y, 95, opts, sfx);
+  if (!noScore) {
+    w.score += ENEMY_SCORE;
+    w.pops.push(pop(f.x, f.y, `+${ENEMY_SCORE}`));
+    if (Math.random() < 0.25) w.drops.push({ x: f.x, y: f.y, vy: 95, dead: false });
+  }
+  f.hp = 0;
+}
+
+function damagePlayer(w: World, sfx: Sfx, opts: Opts) {
+  const p = w.player;
+  w.lives -= 1;
+  w.shake = 16;
+  sfx.hurt();
+  explode(w, p.x, p.y, 70, opts, sfx);
+  if (w.lives <= 0) {
+    w.dying = 1.1;
+    sfx.bigBoom();
+    explode(w, p.x, p.y, 130, opts, sfx);
+  } else {
+    p.inv = INVULN_TIME;
+    // Small mercy: clear enemy fire near the player
+    for (const b of w.bolts) {
+      if (!b.friendly && Math.hypot(b.x - p.x, b.y - p.y) < 110) b.dead = true;
+    }
+  }
+}
+
+function updateFx(w: World, dt: number) {
+  for (const pt of w.parts) {
+    pt.life -= dt;
+    pt.x += pt.vx * dt;
+    pt.y += pt.vy * dt;
+  }
+  w.parts = w.parts.filter((pt) => pt.life > 0);
+  for (const s of w.pops) {
+    s.life -= dt;
+    s.y -= 34 * dt;
+  }
+  w.pops = w.pops.filter((s) => s.life > 0);
+  w.shake *= Math.exp(-6 * dt);
+  if (w.shake < 0.2) w.shake = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Simulation                                                          */
+/* ------------------------------------------------------------------ */
+
+function updateWorld(w: World, dt: number, io: IO) {
+  const { keys, pointer, sfx, opts } = io;
+  const p = w.player;
+
+  // Death animation → game over
+  if (w.dying > 0) {
+    w.dying -= dt;
+    updateFx(w, dt);
+    if (w.dying <= 0) w.over = true;
+    return;
+  }
+
+  w.elapsed += dt;
+  if (w.waveBannerT > 0) w.waveBannerT -= dt;
+  w.waveTimer -= dt;
+  if (w.waveTimer <= 0) {
+    w.wave += 1;
+    w.waveBannerT = 2;
+    sfx.wave();
+    w.waveTimer = WAVE_EVERY;
+  }
+
+  // ----- steering -----
+  let kx = 0;
+  let ky = 0;
+  if (keys.has('ArrowLeft') || keys.has('KeyA')) kx -= 1;
+  if (keys.has('ArrowRight') || keys.has('KeyD')) kx += 1;
+  if (keys.has('ArrowUp') || keys.has('KeyW')) ky -= 1;
+  if (keys.has('ArrowDown') || keys.has('KeyS')) ky += 1;
+
+  if (kx !== 0 || ky !== 0) {
+    const len = Math.hypot(kx, ky);
+    p.vx = (kx / len) * PLAYER_SPEED;
+    p.vy = (ky / len) * PLAYER_SPEED;
+    pointer.active = false;
+  } else if (pointer.active) {
+    p.vx = clamp((pointer.x - p.x) * 10, -560, 560);
+    p.vy = clamp((pointer.y - p.y) * 10, -560, 560);
+  } else {
+    const damp = Math.exp(-10 * dt);
+    p.vx *= damp;
+    p.vy *= damp;
+  }
+  p.x = clamp(p.x + p.vx * dt, 26, W - 26);
+  p.y = clamp(p.y + p.vy * dt, 44, H - 30);
+  p.tilt += (clamp(p.vx * 0.00075, -0.32, 0.32) - p.tilt) * Math.min(1, dt * 12);
+
+  // ----- guns -----
+  p.cool -= dt;
+  p.burstCool -= dt;
+  if (p.cool <= 0) {
+    p.cool = FIRE_COOLDOWN;
+    w.bolts.push(mkBolt(p.x - 13, p.y - 20, p.vx * 0.18, -BULLET_SPEED, true));
+    w.bolts.push(mkBolt(p.x + 13, p.y - 20, p.vx * 0.18, -BULLET_SPEED, true));
+    sfx.laser();
+  }
+  if (p.burstReq && p.burstCool <= 0) {
+    p.burstCool = BURST_COOLDOWN;
+    for (const a of [-0.24, -0.12, 0, 0.12, 0.24]) {
+      w.bolts.push(
+        mkBolt(p.x, p.y - 26, Math.sin(a) * BULLET_SPEED * 0.92, -Math.cos(a) * BULLET_SPEED * 0.92, true),
+      );
+    }
+    sfx.burst();
+  }
+  p.burstReq = false;
+  if (p.inv > 0) p.inv -= dt;
+
+  // ----- engine trail -----
+  if (!opts.reducedMotion) {
+    for (let i = 0; i < 2; i++) {
+      w.parts.push({
+        x: p.x + (Math.random() - 0.5) * 10,
+        y: p.y + 30,
+        vx: (Math.random() - 0.5) * 30,
+        vy: 130 + Math.random() * 60,
+        life: 0.3,
+        maxLife: 0.3,
+        size: 2.2 + Math.random() * 1.6,
+        color: Math.random() < 0.5 ? '#FF9A3C' : '#FFD23C',
+        ring: false,
+        maxR: 0,
+      });
+    }
+  }
+
+  // ----- spawning -----
+  w.rockT -= dt;
+  if (w.rockT <= 0) {
+    spawnRock(w);
+    w.rockT = Math.max(0.42, 1.25 - w.elapsed * 0.012) * (opts.lowPerf ? 1.3 : 1);
+  }
+  if (w.elapsed > 10) {
+    w.foeT -= dt;
+    if (w.foeT <= 0) {
+      spawnFoe(w);
+      w.foeT = Math.max(2.1, 6.2 - w.elapsed * 0.05);
+    }
+  }
+
+  // ----- rocks -----
+  for (const r of w.rocks) {
+    r.x += r.vx * dt;
+    r.y += r.vy * dt;
+    r.rot += r.vr * dt;
+    if (r.hit > 0) r.hit -= dt;
+    if (r.x < r.r * 0.4 && r.vx < 0) r.vx *= -1;
+    if (r.x > W - r.r * 0.4 && r.vx > 0) r.vx *= -1;
+  }
+
+  // ----- foes -----
+  for (const f of w.foes) {
+    f.t += dt;
+    f.y += f.vy * dt;
+    f.x = f.baseX + Math.sin(f.t * f.freq) * f.amp;
+    if (f.hit > 0) f.hit -= dt;
+    f.fireT -= dt;
+    if (f.fireT <= 0 && f.y > 40 && f.y < H - 180) {
+      f.fireT = 1.5 + Math.random() * 1.1;
+      const dx = p.x - f.x;
+      const dy = p.y - f.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const sp = 235 + Math.min(90, w.elapsed);
+      w.bolts.push(mkBolt(f.x, f.y + 22, (dx / d) * sp, (dy / d) * sp, false));
+      sfx.foeLaser();
+    }
+  }
+
+  // ----- bolts & drops -----
+  for (const b of w.bolts) {
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+  }
+  for (const d of w.drops) d.y += d.vy * dt;
+
+  // ----- collisions: friendly bolts -----
+  for (const b of w.bolts) {
+    if (!b.friendly || b.dead) continue;
+    for (const r of w.rocks) {
+      if (r.hp <= 0) continue;
+      if (hit(b.x, b.y, 5, r.x, r.y, r.r)) {
+        b.dead = true;
+        r.hp -= 1;
+        r.hit = 0.09;
+        spark(w, b.x, b.y + 4, opts);
+        if (r.hp <= 0) destroyRock(w, r, sfx, opts);
+        break;
+      }
+    }
+    if (b.dead) continue;
+    for (const f of w.foes) {
+      if (f.hp <= 0) continue;
+      if (hit(b.x, b.y, 5, f.x, f.y, ENEMY_R)) {
+        b.dead = true;
+        f.hp -= 1;
+        f.hit = 0.09;
+        spark(w, b.x, b.y + 4, opts);
+        if (f.hp <= 0) destroyFoe(w, f, sfx, opts);
+        break;
+      }
+    }
+  }
+
+  // ----- collisions: player -----
+  if (p.inv <= 0) {
+    let hitPlayer = false;
+    for (const b of w.bolts) {
+      if (!b.friendly && hit(b.x, b.y, 4, p.x, p.y, PLAYER_R)) {
+        b.dead = true;
+        hitPlayer = true;
+        break;
+      }
+    }
+    if (!hitPlayer) {
+      for (const r of w.rocks) {
+        if (r.hp > 0 && hit(p.x, p.y, PLAYER_R, r.x, r.y, r.r * 0.82)) {
+          destroyRock(w, r, sfx, opts, true);
+          hitPlayer = true;
+          break;
+        }
+      }
+    }
+    if (!hitPlayer) {
+      for (const f of w.foes) {
+        if (f.hp > 0 && hit(p.x, p.y, PLAYER_R, f.x, f.y, ENEMY_R * 0.8)) {
+          destroyFoe(w, f, sfx, opts, true);
+          hitPlayer = true;
+          break;
+        }
+      }
+    }
+    if (hitPlayer) damagePlayer(w, sfx, opts);
+  }
+
+  // ----- pickups -----
+  for (const d of w.drops) {
+    if (!d.dead && hit(p.x, p.y, PLAYER_R + 6, d.x, d.y, 13)) {
+      d.dead = true;
+      if (w.lives < MAX_LIVES) {
+        w.lives += 1;
+        w.pops.push(pop(d.x, d.y, '+1 LIFE'));
+      } else {
+        w.score += 50;
+        w.pops.push(pop(d.x, d.y, '+50'));
+      }
+      sfx.pickup();
+    }
+  }
+
+  updateFx(w, dt);
+
+  // ----- cull -----
+  w.rocks = w.rocks.filter((r) => r.hp > 0 && r.y < H + 80);
+  w.foes = w.foes.filter((f) => f.hp > 0 && f.y < H + 70);
+  w.bolts = w.bolts.filter((b) => !b.dead && b.y > -30 && b.y < H + 30 && b.x > -30 && b.x < W + 30);
+  w.drops = w.drops.filter((d) => !d.dead && d.y < H + 30);
+}
+
+/* ------------------------------------------------------------------ */
+/* Rendering                                                           */
+/* ------------------------------------------------------------------ */
+
+const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+
+function drawBolt(ctx: CanvasRenderingContext2D, b: Bolt) {
+  if (b.friendly) {
+    ctx.fillStyle = 'rgba(90, 220, 255, 0.5)';
+    ctx.fillRect(b.x - 3, b.y - 9, 6, 18);
+    ctx.fillStyle = '#EAFBFF';
+    ctx.fillRect(b.x - 1.5, b.y - 6, 3, 12);
+  } else {
+    ctx.fillStyle = 'rgba(255, 80, 60, 0.55)';
+    ctx.fillRect(b.x - 3, b.y - 8, 6, 16);
+    ctx.fillStyle = '#FFD0C0';
+    ctx.fillRect(b.x - 1.5, b.y - 5, 3, 10);
+  }
+}
+
+function drawDrop(ctx: CanvasRenderingContext2D, d: Drop, time: number) {
+  const r = 11 + Math.sin(time * 6 + d.x) * 1.2;
+  ctx.fillStyle = '#3EE06E';
+  ctx.beginPath();
+  ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(d.x - 1.8, d.y - 6, 3.6, 12);
+  ctx.fillRect(d.x - 6, d.y - 1.8, 12, 3.6);
+}
+
+function drawPlaceholderRocket(ctx: CanvasRenderingContext2D, x: number, y: number, tilt: number) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(tilt);
+  ctx.fillStyle = '#E44D3C';
+  ctx.beginPath();
+  ctx.moveTo(0, -30);
+  ctx.lineTo(16, 26);
+  ctx.lineTo(-16, 26);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawHud(ctx: CanvasRenderingContext2D, w: World, rocket?: HTMLImageElement) {
+  ctx.textAlign = 'left';
+  ctx.font = `bold 20px ${MONO}`;
+  ctx.fillStyle = '#CCFF00';
+  ctx.fillText(`SCORE ${String(w.score).padStart(6, '0')}`, 18, 32);
+  ctx.font = `12px ${MONO}`;
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.fillText(`BEST ${String(Math.max(w.best, w.score)).padStart(6, '0')}`, 18, 50);
+
+  // Lives as mini rocket icons
+  for (let i = 0; i < w.lives; i++) {
+    const x = W - 32 - i * 24;
+    if (rocket) {
+      const dw = 20 * (rocket.width / rocket.height);
+      ctx.drawImage(rocket, x - dw / 2, 14, dw, 20);
+    } else {
+      drawPlaceholderRocket(ctx, x, 24, 0);
+    }
+  }
+}
+
+function drawWaveBanner(ctx: CanvasRenderingContext2D, w: World) {
+  if (w.waveBannerT <= 0) return;
+  const a = Math.min(1, (2 - w.waveBannerT) / 0.25) * Math.min(1, w.waveBannerT / 0.5);
+  ctx.globalAlpha = a;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#CCFF00';
+  ctx.font = `900 44px ${MONO}`;
+  ctx.fillText(`WAVE ${w.wave}`, W / 2, H / 2 - 40);
+  ctx.font = `13px ${MONO}`;
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.fillText('hostiles inbound', W / 2, H / 2 - 16);
+  ctx.globalAlpha = 1;
+}
+
+function drawWorld(
+  ctx: CanvasRenderingContext2D,
+  w: World,
+  assets: GameAssets,
+  opts: Opts,
+  time: number,
+  status: Status,
+) {
+  // Background
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#04050d');
+  g.addColorStop(0.55, '#0a0d1e');
+  g.addColorStop(1, '#101228');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  if (w.shake > 0 && !opts.reducedMotion) {
+    ctx.translate((Math.random() - 0.5) * w.shake, (Math.random() - 0.5) * w.shake);
+  }
+
+  // Stars drift with absolute time so they animate in menu & pause too
+  for (const layer of STARS) {
+    ctx.fillStyle = '#DDE6FF';
+    for (const s of layer.stars) {
+      const y = (s.y + time * layer.speed) % (H + 4);
+      ctx.globalAlpha = layer.alpha * s.a;
+      ctx.fillRect(s.x, y, layer.size, layer.size);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  if (status === 'menu') {
+    ctx.restore();
+    return;
+  }
+
+  const p = w.player;
+
+  // Drops
+  for (const d of w.drops) drawDrop(ctx, d, time);
+
+  // Rocks
+  for (const r of w.rocks) {
+    ctx.save();
+    ctx.translate(r.x, r.y);
+    ctx.rotate(r.rot);
+    if (r.hit > 0) ctx.filter = 'brightness(2.4) saturate(0.4)';
+    if (assets.asteroid) {
+      ctx.drawImage(assets.asteroid, -r.size / 2, -r.size / 2, r.size, r.size);
+    } else {
+      ctx.fillStyle = '#7A6A5A';
+      ctx.beginPath();
+      ctx.arc(0, 0, r.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Foes
+  for (const f of w.foes) {
+    ctx.save();
+    ctx.translate(f.x, f.y);
+    ctx.rotate(Math.sin(f.t * 2.2) * 0.09);
+    if (f.hit > 0) ctx.filter = 'brightness(2.4) saturate(0.4)';
+    if (assets.enemy) {
+      const dh = 64;
+      const dw = dh * (assets.enemy.width / assets.enemy.height);
+      ctx.drawImage(assets.enemy, -dw / 2, -dh / 2, dw, dh);
+    } else {
+      ctx.fillStyle = '#333344';
+      ctx.fillRect(-22, -26, 44, 52);
+    }
+    ctx.restore();
+  }
+
+  // Bolts
+  for (const b of w.bolts) drawBolt(ctx, b);
+
+  // Player rocket (blinks while invulnerable, hidden while dying)
+  if (!w.dying) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.tilt);
+    if (p.inv > 0) ctx.globalAlpha = 0.3 + 0.25 * Math.sin(time * 26);
+    if (assets.rocket) {
+      const dh = 66;
+      const dw = dh * (assets.rocket.width / assets.rocket.height);
+      ctx.drawImage(assets.rocket, -dw / 2, -dh / 2, dw, dh);
+    } else {
+      drawPlaceholderRocket(ctx, 0, 0, 0);
+    }
+    ctx.restore();
+  }
+
+  // Particles
+  for (const pt of w.parts) {
+    const a = Math.max(0, pt.life / pt.maxLife);
+    if (pt.ring) {
+      ctx.globalAlpha = a * 0.8;
+      ctx.strokeStyle = pt.color;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, (1 - a) * pt.maxR + 4, 0, Math.PI * 2);
+      ctx.stroke();
+    } else {
+      ctx.globalAlpha = a;
+      ctx.fillStyle = pt.color;
+      ctx.fillRect(pt.x - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // Score pops
+  ctx.textAlign = 'center';
+  ctx.font = `bold 13px ${MONO}`;
+  for (const s of w.pops) {
+    ctx.globalAlpha = Math.min(1, s.life / 0.5);
+    ctx.fillStyle = '#CCFF00';
+    ctx.fillText(s.text, s.x, s.y);
+  }
+  ctx.globalAlpha = 1;
+
+  drawHud(ctx, w, assets.rocket);
+  drawWaveBanner(ctx, w);
+
+  ctx.restore();
+}
+
+/* ------------------------------------------------------------------ */
+/* React component                                                     */
+/* ------------------------------------------------------------------ */
+
+export function RocketRampageGame({ onBack }: { onBack: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const worldRef = useRef<World | null>(null);
+  const assetsRef = useRef<GameAssets>({});
+  const keysRef = useRef<Set<string>>(new Set());
+  const pointerRef = useRef({ x: W / 2, y: H - 90, active: false });
+  const statusRef = useRef<Status>('loading');
+  const sfxRef = useRef<Sfx | null>(null);
+  const optsRef = useRef<Opts>({ reducedMotion: false, lowPerf: false });
+  const onBackRef = useRef(onBack);
+  onBackRef.current = onBack;
+
+  const [status, setStatus] = useState<Status>('loading');
+  const [best, setBest] = useState(0);
+  const [finalScore, setFinalScore] = useState(0);
+  const [newBest, setNewBest] = useState(false);
+  const [muted, setMuted] = useState(false);
+
+  const applyStatus = useCallback((s: Status) => {
+    statusRef.current = s;
+    setStatus(s);
+  }, []);
+
+  const togglePause = useCallback(() => {
+    if (statusRef.current === 'playing') applyStatus('paused');
+    else if (statusRef.current === 'paused') applyStatus('playing');
+  }, [applyStatus]);
+
+  const startGame = useCallback(() => {
+    sfxRef.current?.ensure();
+    worldRef.current = createWorld();
+    setFinalScore(0);
+    setNewBest(false);
+    applyStatus('playing');
+  }, [applyStatus]);
+
+  const togglePauseRef = useRef(togglePause);
+  togglePauseRef.current = togglePause;
+
+  const bestRef = useRef(0);
+  const gameOverRef = useRef<() => void>(() => undefined);
+  gameOverRef.current = () => {
+    const w = worldRef.current;
+    if (!w) return;
+    setFinalScore(w.score);
+    const isBest = w.score > bestRef.current;
+    setNewBest(isBest);
+    if (isBest) {
+      bestRef.current = w.score;
+      setBest(w.score);
+      try {
+        localStorage.setItem(BEST_KEY, String(w.score));
+      } catch {
+        /* storage full / private mode */
+      }
+    }
+    applyStatus('gameover');
+  };
+
+  const toggleMute = () => {
+    setMuted((m) => {
+      const nm = !m;
+      if (sfxRef.current) sfxRef.current.muted = nm;
+      try {
+        localStorage.setItem(MUTE_KEY, nm ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return nm;
+    });
+  };
+
+  // Main engine effect (mount once)
+  useEffect(() => {
+    let storedMute = false;
+    try {
+      const b = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0;
+      bestRef.current = b;
+      setBest(b);
+      storedMute = localStorage.getItem(MUTE_KEY) === '1';
+      setMuted(storedMute);
+      const s = getStoredSettings();
+      optsRef.current = { reducedMotion: s.reducedMotion, lowPerf: s.lowPerformance };
+    } catch {
+      /* ignore */
+    }
+    if (!sfxRef.current) sfxRef.current = new Sfx();
+    sfxRef.current.muted = storedMute;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    let cancelled = false;
+    const loadPromise = Promise.all(
+      (Object.entries(ASSET_SRC) as [AssetKey, string][]).map(
+        ([k, src]) =>
+          new Promise<[AssetKey, HTMLImageElement]>((res, rej) => {
+            const im = new Image();
+            im.onload = () => res([k, im]);
+            im.onerror = () => rej(new Error(`failed to load ${src}`));
+            im.src = src;
+          }),
+      ),
+    );
+    loadPromise
+      .then((entries) => {
+        if (cancelled) return;
+        for (const [k, im] of entries) assetsRef.current[k] = im;
+        worldRef.current = createWorld();
+        applyStatus('menu');
+      })
+      .catch(() => {
+        // Still playable with placeholder vector art if images fail
+        if (!cancelled) {
+          worldRef.current = createWorld();
+          applyStatus('menu');
+        }
+      });
+
+    const io: IO = {
+      keys: keysRef.current,
+      pointer: pointerRef.current,
+      sfx: sfxRef.current,
+      opts: optsRef.current,
+    };
+
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      const dt = Math.min(0.033, (now - last) / 1000);
+      last = now;
+      const w = worldRef.current;
+      if (!w) return;
+      if (statusRef.current === 'playing') {
+        updateWorld(w, dt, io);
+        if (w.over && statusRef.current === 'playing') gameOverRef.current();
+      }
+      drawWorld(ctx, w, assetsRef.current, optsRef.current, now / 1000, statusRef.current);
+    };
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      sfxRef.current?.close();
+      sfxRef.current = null;
+    };
+  }, [applyStatus]);
+
+  // Keyboard + visibility handling (mount once)
+  useEffect(() => {
+    const BLOCK = new Set(['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
+    const down = (e: KeyboardEvent) => {
+      const st = statusRef.current;
+      if (st === 'playing' || st === 'paused') {
+        if (BLOCK.has(e.code)) e.preventDefault();
+        keysRef.current.add(e.code);
+        if (e.code === 'KeyP' || e.code === 'Escape') {
+          e.preventDefault();
+          togglePauseRef.current();
+        }
+        if (e.code === 'Space') {
+          const w = worldRef.current;
+          if (w) w.player.burstReq = true;
+        }
+      } else if (st === 'gameover' && e.code === 'Escape') {
+        onBackRef.current();
+      }
+    };
+    const up = (e: KeyboardEvent) => keysRef.current.delete(e.code);
+    const vis = () => {
+      if (document.hidden && statusRef.current === 'playing') togglePauseRef.current();
+    };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    document.addEventListener('visibilitychange', vis);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      document.removeEventListener('visibilitychange', vis);
+      keysRef.current.clear();
+    };
+  }, []);
+
+  const toLogical = (clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left) * (W / rect.width),
+      y: (clientY - rect.top) * (H / rect.height),
+    };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (statusRef.current !== 'playing') return;
+    const pt = toLogical(e.clientX, e.clientY);
+    if (!pt) return;
+    pointerRef.current.x = pt.x;
+    pointerRef.current.y = pt.y;
+    pointerRef.current.active = true;
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (statusRef.current !== 'playing') return;
+    const pt = toLogical(e.clientX, e.clientY);
+    if (pt) {
+      pointerRef.current.x = pt.x;
+      pointerRef.current.y = pt.y;
+      pointerRef.current.active = true;
+    }
+    const w = worldRef.current;
+    if (w) w.player.burstReq = true;
+  };
+
+  const playing = status === 'playing';
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/95 p-2 sm:p-6 font-sans"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Rocket Rampage game"
+    >
+      <div className="w-full max-w-5xl flex flex-col gap-3">
+        {/* Top bar */}
+        <div className="flex items-center justify-between font-mono text-xs">
+          <div className="flex items-center gap-2 text-neutral-200 font-bold tracking-wide">
+            <RocketIcon className="w-4 h-4 text-[#CCFF00]" />
+            ROCKET RAMPAGE
+          </div>
+          <div className="flex items-center gap-2">
+            {best > 0 && (
+              <span className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-neutral-300">
+                <Trophy className="w-3.5 h-3.5 text-[#CCFF00]" /> Best {best}
+              </span>
+            )}
+            <button
+              onClick={toggleMute}
+              className="p-2 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-700 rounded-lg transition-colors cursor-pointer"
+              aria-label={muted ? 'Unmute sound' : 'Mute sound'}
+            >
+              {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </button>
+            {(playing || status === 'paused') && (
+              <button
+                onClick={togglePause}
+                className="p-2 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-700 rounded-lg transition-colors cursor-pointer"
+                aria-label={playing ? 'Pause game' : 'Resume game'}
+              >
+                {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              </button>
+            )}
+            <button
+              onClick={onBack}
+              className="flex items-center gap-1.5 px-3 py-2 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-700 rounded-lg transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" /> <span className="hidden sm:inline">Quit</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Playfield */}
+        <div
+          className="relative w-full rounded-xl border-2 border-neutral-700 overflow-hidden bg-black shadow-[0_0_70px_rgba(204,255,0,0.08)]"
+          onPointerMove={handlePointerMove}
+          onPointerDown={handlePointerDown}
+          style={{ touchAction: 'none' }}
+        >
+          <canvas ref={canvasRef} className="block w-full h-auto select-none" aria-label="Rocket Rampage playfield" />
+
+          {/* Loading overlay */}
+          {status === 'loading' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-[#050508]">
+              <span className="font-mono text-xs text-neutral-400 animate-pulse">LOADING ASSETS…</span>
+            </div>
+          )}
+
+          {/* Menu overlay */}
+          {status === 'menu' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 backdrop-blur-[2px] px-6 text-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/games/rocket-rampage/rocket.png"
+                alt=""
+                draggable={false}
+                className="w-16 animate-pulse drop-shadow-[0_0_18px_rgba(204,255,0,0.35)]"
+              />
+              <h2 className="font-mono text-3xl sm:text-4xl font-black tracking-tight text-neutral-50">
+                ROCKET <span className="text-[#CCFF00]">RAMPAGE</span>
+              </h2>
+              <p className="font-mono text-xs text-neutral-300 max-w-md leading-relaxed">
+                Destroy asteroids · outgun alien fighters · grab repair kits.
+                <br />
+                Cannons auto-fire — you just steer and survive.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 font-mono text-[11px] text-neutral-400">
+                <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">MOUSE / WASD — steer</span>
+                <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">SPACE / TAP — spread burst</span>
+                <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">P / ESC — pause</span>
+              </div>
+              {best > 0 && (
+                <span className="flex items-center gap-1.5 font-mono text-xs text-[#CCFF00]">
+                  <Trophy className="w-3.5 h-3.5" /> Best score: {best}
+                </span>
+              )}
+              <button
+                onClick={startGame}
+                className="mt-1 px-8 py-3 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
+              >
+                ▶ LAUNCH MISSION
+              </button>
+            </div>
+          )}
+
+          {/* Paused overlay */}
+          {status === 'paused' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 backdrop-blur-[2px] text-center">
+              <h2 className="font-mono text-3xl font-black tracking-widest text-neutral-100">PAUSED</h2>
+              <button
+                onClick={togglePause}
+                className="px-6 py-2.5 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black transition-colors cursor-pointer"
+              >
+                ▶ Resume
+              </button>
+              <p className="font-mono text-[11px] text-neutral-400">P / Esc to resume</p>
+            </div>
+          )}
+
+          {/* Game over overlay */}
+          {status === 'gameover' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 backdrop-blur-[2px] text-center px-6">
+              <h2 className="font-mono text-3xl sm:text-4xl font-black tracking-widest text-rose-400">GAME OVER</h2>
+              {newBest && (
+                <span className="font-mono text-xs font-bold text-[#CCFF00] animate-pulse tracking-widest">
+                  ★ NEW BEST SCORE ★
+                </span>
+              )}
+              <div className="font-mono text-5xl sm:text-6xl font-black text-neutral-50 my-1">{finalScore}</div>
+              <div className="font-mono text-xs text-neutral-400">best {Math.max(best, finalScore)}</div>
+              <div className="flex items-center gap-3 mt-3">
+                <button
+                  onClick={startGame}
+                  className="px-6 py-2.5 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
+                >
+                  ⟳ Play again
+                </button>
+                <button
+                  onClick={onBack}
+                  className="px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-600 text-neutral-200 font-mono text-xs rounded-lg transition-colors cursor-pointer"
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <p className="text-[10px] font-mono text-neutral-500 text-center">
+          Mouse or WASD / arrows to steer · cannons auto-fire · Space / tap = spread burst · P = pause
+        </p>
+      </div>
+    </div>
+  );
+}
