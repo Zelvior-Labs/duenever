@@ -29,7 +29,11 @@ const ROCK_TIERS = [
 ] as const;
 
 const ENEMY_R = 24;
-const ENEMY_SCORE = 40;
+const GUNNER_SCORE = 40;
+const DIVER_SCORE = 60;
+
+const FOE_CAP = 6; // low-perf mode lowers this
+const PART_MAX = 700; // fixed particle pool (zero per-frame allocation)
 
 const ASSET_SRC = {
   rocket: '/games/rocket-rampage/rocket.png',
@@ -41,7 +45,8 @@ type AssetKey = keyof typeof ASSET_SRC;
 type GameAssets = Partial<Record<AssetKey, HTMLImageElement>>;
 
 /* ------------------------------------------------------------------ */
-/* Star field (module-level so menu & pause screens keep drifting)     */
+/* Star field — pre-rendered once to offscreen canvases and scrolled   */
+/* with 2 drawImage calls per layer (instead of 124 alpha fills/frame) */
 /* ------------------------------------------------------------------ */
 
 const STAR_LAYERS = [
@@ -50,7 +55,7 @@ const STAR_LAYERS = [
   { n: 24, speed: 95, size: 2.3, alpha: 0.9 },
 ];
 
-const STARS = STAR_LAYERS.map((l) => ({
+const STAR_DEFS = STAR_LAYERS.map((l) => ({
   ...l,
   stars: Array.from({ length: l.n }, () => ({
     x: Math.random() * W,
@@ -58,6 +63,48 @@ const STARS = STAR_LAYERS.map((l) => ({
     a: 0.5 + Math.random() * 0.5,
   })),
 }));
+
+function buildStarCanvas(layer: (typeof STAR_DEFS)[number]): HTMLCanvasElement | null {
+  try {
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const cx = c.getContext('2d');
+    if (!cx) return null;
+    for (const s of layer.stars) {
+      cx.globalAlpha = layer.alpha * s.a;
+      cx.fillStyle = '#DDE6FF';
+      cx.fillRect(s.x, s.y, layer.size, layer.size);
+    }
+    return c;
+  } catch {
+    return null;
+  }
+}
+
+/** White-tinted copy of a sprite, pre-rendered once — replaces ctx.filter (very slow). */
+function buildFlash(img: HTMLImageElement): HTMLCanvasElement | null {
+  try {
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const cx = c.getContext('2d');
+    if (!cx) return null;
+    cx.drawImage(img, 0, 0);
+    cx.globalCompositeOperation = 'source-atop';
+    cx.fillStyle = 'rgba(255, 235, 210, 0.9)';
+    cx.fillRect(0, 0, c.width, c.height);
+    return c;
+  } catch {
+    return null;
+  }
+}
+
+interface RenderCache {
+  gradient: CanvasGradient | null;
+  stars: (HTMLCanvasElement | null)[];
+  flash: Partial<Record<AssetKey, HTMLCanvasElement | null>>;
+}
 
 /* ------------------------------------------------------------------ */
 /* Sound synth (WebAudio, no assets)                                   */
@@ -128,6 +175,9 @@ class Sfx {
   foeLaser() {
     this.tone('sawtooth', 300, 110, 0.14, 0.03);
   }
+  telegraph() {
+    this.tone('sine', 240, 540, 0.22, 0.03);
+  }
   boom(size: number) {
     this.noise(0.3 + size * 0.02, 1400, 0.15);
     this.tone('triangle', 120, 35, 0.3, 0.11);
@@ -195,18 +245,26 @@ interface Rock {
   hit: number;
 }
 
+/** Foe AI modes: 0 = maneuver (hover/strafe/dodge), 1 = telegraph, 2 = committed dive */
 interface Foe {
-  baseX: number;
-  amp: number;
-  freq: number;
-  t: number;
+  kind: 0 | 1; // 0 = gunner (aims & bursts), 1 = diver (lines up & charges)
+  mode: 0 | 1 | 2;
   x: number;
   y: number;
+  vx: number;
   vy: number;
+  t: number;
   hp: number;
   r: number;
   hit: number;
-  fireT: number;
+  teleT: number;
+  burst: number;
+  burstT: number;
+  fireCd: number;
+  diveCd: number;
+  prefY: number;
+  dodgeT: number;
+  dodgeDir: number;
 }
 
 interface Particle {
@@ -241,7 +299,8 @@ interface World {
   rocks: Rock[];
   foes: Foe[];
   bolts: Bolt[];
-  parts: Particle[];
+  parts: Particle[]; // fixed-size pool
+  partI: number; // ring-buffer write index
   pops: Pop[];
   drops: Drop[];
   score: number;
@@ -292,6 +351,16 @@ const mkBolt = (x: number, y: number, vx: number, vy: number, friendly: boolean)
   dead: false,
 });
 
+/** In-place compaction — no per-frame array allocation (GC jitter killer). */
+function compact<T>(arr: T[], keep: (v: T) => boolean): void {
+  let j = 0;
+  for (let i = 0; i < arr.length; i++) {
+    const v = arr[i];
+    if (keep(v)) arr[j++] = v;
+  }
+  arr.length = j;
+}
+
 const pop = (x: number, y: number, text: string): Pop => ({ x, y, text, life: 0.9 });
 
 function readBest(): number {
@@ -318,7 +387,19 @@ function createWorld(): World {
     rocks: [],
     foes: [],
     bolts: [],
-    parts: [],
+    parts: Array.from({ length: PART_MAX }, () => ({
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      life: 0,
+      maxLife: 1,
+      size: 0,
+      color: '#FFF',
+      ring: false,
+      maxR: 0,
+    })),
+    partI: 0,
     pops: [],
     drops: [],
     score: 0,
@@ -338,57 +419,59 @@ function createWorld(): World {
 
 const EXPLOSION_COLORS = ['#FFA03C', '#FFE08A', '#FF5A3C', '#FFFFFF'];
 
+/** Write a particle into the fixed pool (ring buffer — oldest slot is reused). */
+function emit(
+  w: World,
+  x: number,
+  y: number,
+  vx: number,
+  vy: number,
+  life: number,
+  size: number,
+  color: string,
+  ring = false,
+  maxR = 0,
+) {
+  const pt = w.parts[w.partI];
+  pt.x = x;
+  pt.y = y;
+  pt.vx = vx;
+  pt.vy = vy;
+  pt.life = life;
+  pt.maxLife = life;
+  pt.size = size;
+  pt.color = color;
+  pt.ring = ring;
+  pt.maxR = maxR;
+  w.partI = (w.partI + 1) % PART_MAX;
+}
+
 function spark(w: World, x: number, y: number, opts: Opts) {
-  const n = opts.reducedMotion ? 2 : 4;
+  const n = opts.reducedMotion ? 2 : opts.lowPerf ? 3 : 4;
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2;
     const sp = 60 + Math.random() * 120;
-    w.parts.push({
-      x,
-      y,
-      vx: Math.cos(a) * sp,
-      vy: Math.sin(a) * sp,
-      life: 0.18 + Math.random() * 0.12,
-      maxLife: 0.3,
-      size: 1.6 + Math.random() * 1.8,
-      color: i % 2 ? '#9FE8FF' : '#FFE08A',
-      ring: false,
-      maxR: 0,
-    });
+    emit(w, x, y, Math.cos(a) * sp, Math.sin(a) * sp, 0.18 + Math.random() * 0.12, 1.6 + Math.random() * 1.8, i % 2 ? '#9FE8FF' : '#FFE08A');
   }
 }
 
 function explode(w: World, x: number, y: number, size: number, opts: Opts, sfx: Sfx) {
-  const n = opts.reducedMotion ? 8 : Math.round(10 + size * 0.22);
+  const n = opts.reducedMotion ? 8 : Math.round((10 + size * 0.22) * (opts.lowPerf ? 0.6 : 1));
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2;
     const sp = 50 + Math.random() * (60 + size * 2.4);
-    const life = 0.4 + Math.random() * 0.35;
-    w.parts.push({
+    emit(
+      w,
       x,
       y,
-      vx: Math.cos(a) * sp,
-      vy: Math.sin(a) * sp,
-      life,
-      maxLife: life,
-      size: 2 + Math.random() * 3.5,
-      color: EXPLOSION_COLORS[Math.floor(Math.random() * EXPLOSION_COLORS.length)],
-      ring: false,
-      maxR: 0,
-    });
+      Math.cos(a) * sp,
+      Math.sin(a) * sp,
+      0.4 + Math.random() * 0.35,
+      2 + Math.random() * 3.5,
+      EXPLOSION_COLORS[(Math.random() * EXPLOSION_COLORS.length) | 0],
+    );
   }
-  w.parts.push({
-    x,
-    y,
-    vx: 0,
-    vy: 0,
-    life: 0.35,
-    maxLife: 0.35,
-    size: 0,
-    color: '#FFC46B',
-    ring: true,
-    maxR: size * 1.15,
-  });
+  emit(w, x, y, 0, 0, 0.35, 0, '#FFC46B', true, size * 1.15);
   w.shake = Math.min(22, w.shake + size * 0.16);
   sfx.boom(size);
 }
@@ -420,22 +503,194 @@ function spawnRock(w: World) {
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* Smart opponents                                                     */
+/* ------------------------------------------------------------------ */
+
 function spawnFoe(w: World) {
-  const amp = 55 + Math.random() * 95;
-  const baseX = amp + 20 + Math.random() * Math.max(60, W - amp * 2 - 40);
+  // Divers unlock after the early game and get more common over time
+  const diverChance = w.elapsed < 25 ? 0 : Math.min(0.45, 0.18 + w.elapsed * 0.004);
+  const kind: 0 | 1 = Math.random() < diverChance ? 1 : 0;
+  const amp = 40 + Math.random() * 60;
+  const baseX = amp + 30 + Math.random() * Math.max(60, W - amp * 2 - 60);
   w.foes.push({
-    baseX,
-    amp,
-    freq: 1.4 + Math.random() * 1.2,
-    t: Math.random() * 6,
+    kind,
+    mode: 0,
     x: baseX,
-    y: -70,
-    vy: Math.min(115, 62 + w.elapsed * 0.7),
-    hp: 3 + Math.floor(w.elapsed / 40),
+    y: -60,
+    vx: 0,
+    vy: kind === 0 ? 70 : 95,
+    t: 0,
+    hp: kind === 0 ? 3 + Math.floor(w.elapsed / 45) : 2 + Math.floor(w.elapsed / 50),
     r: ENEMY_R,
     hit: 0,
-    fireT: 1.2 + Math.random(),
+    teleT: 0,
+    burst: 0,
+    burstT: 0,
+    fireCd: 1.2 + Math.random() * 1.2,
+    diveCd: 1.6 + Math.random() * 1.4,
+    prefY: kind === 0 ? 90 + Math.random() * 130 : 100 + Math.random() * 90,
+    dodgeT: 0,
+    dodgeDir: 1,
   });
+}
+
+/** Perceive incoming friendly bullets and set an evasion impulse (dogfight dodging). */
+function scanThreat(w: World, f: Foe) {
+  for (const b of w.bolts) {
+    if (!b.friendly || b.dead) continue;
+    const dy = f.y - b.y;
+    if (dy <= 4 || dy > 200) continue; // only bullets rising toward the foe
+    const ttc = dy / BULLET_SPEED; // time-to-close
+    if (ttc > 0.6) continue;
+    const bx = b.x + b.vx * ttc;
+    if (Math.abs(bx - f.x) < f.r + 16) {
+      f.dodgeDir = bx >= f.x ? -1 : 1;
+      f.dodgeT = 0.26;
+      return;
+    }
+  }
+}
+
+/** Aimed shot that LEADS the player's movement (interception, not point-at). */
+function fireLed(w: World, f: Foe, speed: number, sfx: Sfx, spread: number) {
+  const p = w.player;
+  const dx = p.x + p.vx * 0.3 - f.x;
+  const dy = p.y + p.vy * 0.3 - f.y;
+  const d = Math.hypot(dx, dy) || 1;
+  let ax = dx / d;
+  let ay = dy / d;
+  if (spread) {
+    const c = Math.cos(spread);
+    const s = Math.sin(spread);
+    const nx = ax * c - ay * s;
+    ay = ax * s + ay * c;
+    ax = nx;
+  }
+  w.bolts.push(mkBolt(f.x, f.y + 20, ax * speed, ay * speed, false));
+  sfx.foeLaser();
+}
+
+function updateFoes(w: World, dt: number, sfx: Sfx, opts: Opts) {
+  const p = w.player;
+  const boltSpeed = 235 + Math.min(90, w.elapsed);
+
+  for (const f of w.foes) {
+    f.t += dt;
+    if (f.hit > 0) f.hit -= dt;
+    if (f.teleT > 0) f.teleT -= dt;
+
+    // --- dodge incoming friendly fire (unless committed to a dive) ---
+    if (f.dodgeT > 0) f.dodgeT -= dt;
+    else if (f.mode !== 2) scanThreat(w, f);
+
+    if (f.mode === 2) {
+      // Committed dive — hold velocity, leave a hot trail
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      if (!opts.reducedMotion) {
+        emit(w, f.x + (Math.random() - 0.5) * 14, f.y - 26, 0, 0, 0.22, 2.6, '#FF8A5C');
+      }
+      if (f.y > H - 70 || f.x < -40 || f.x > W + 40) {
+        // Break off and climb back to a hover band
+        f.mode = 0;
+        f.prefY = 100 + Math.random() * 110;
+        f.diveCd = 2.6 + Math.random() * 1.6;
+        f.vx = 0;
+        f.vy = -90;
+      }
+      continue;
+    }
+
+    // --- steering: hover at preferred altitude, strafe toward player's future x ---
+    const bob = Math.sin(f.t * 2.1) * 26;
+    let dvy: number;
+    if (f.y < f.prefY - 14) dvy = 85;
+    else if (f.y > f.prefY + 14) dvy = -70;
+    else dvy = bob;
+
+    const predX = clamp(p.x + p.vx * 0.35, 40, W - 40);
+    let dvx = clamp((predX - f.x) * 0.9, -125, 125) + Math.sin(f.t * 1.3) * 34;
+    if (f.dodgeT > 0) dvx += f.dodgeDir * 205; // evasion burst overrides strafe
+
+    const k = 1 - Math.exp(-3.4 * dt);
+    f.vx += (dvx - f.vx) * k;
+    f.vy += (dvy - f.vy) * k;
+    f.x = clamp(f.x + f.vx * dt, 30, W - 30);
+    f.y = Math.max(-60, f.y + f.vy * dt);
+
+    // --- attacks ---
+    if (f.kind === 0) {
+      // Gunner: telegraphed burst fire with lead prediction
+      if (f.burst > 0) {
+        f.burstT -= dt;
+        if (f.burstT <= 0) {
+          f.burstT = 0.14;
+          f.burst -= 1;
+          fireLed(w, f, boltSpeed, sfx, 0.06 * f.burst);
+          if (f.burst === 0) {
+            f.fireCd = Math.max(0.9, 1.9 - w.elapsed * 0.012) + Math.random() * 0.9;
+          }
+        }
+      } else {
+        f.fireCd -= dt;
+        if (f.fireCd <= 0 && f.y > 60 && f.y < H - 210) {
+          f.burst = 2 + (w.elapsed > 55 ? 1 : 0) + (w.elapsed > 120 ? 1 : 0);
+          f.burstT = 0.26; // acts as telegraph before the first shot
+          f.teleT = 0.26;
+          sfx.telegraph();
+        }
+      }
+    } else {
+      // Diver: lines up above the player's predicted x, telegraphs, then charges
+      f.diveCd -= dt;
+      if (f.diveCd <= 0 && f.y > 46 && f.y < H * 0.45) {
+        const tta = Math.max(0, (p.y - f.y) / 260);
+        const aimX = clamp(p.x + p.vx * tta, 40, W - 40);
+        if (Math.abs(aimX - f.x) < 90) {
+          f.mode = 1;
+          f.teleT = 0.32;
+          sfx.telegraph();
+        } else {
+          f.diveCd = 0.35; // keep adjusting toward alignment
+        }
+      }
+    }
+  }
+
+  // Telegraph → strike (divers)
+  for (const f of w.foes) {
+    if (f.mode === 1 && f.teleT <= 0) {
+      const dx = p.x + p.vx * 0.22 - f.x;
+      const dy = p.y + p.vy * 0.22 - f.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const sp = 330 + Math.min(110, w.elapsed);
+      f.vx = (dx / d) * sp;
+      f.vy = Math.max(sp * 0.55, (dy / d) * sp);
+      f.mode = 2;
+    }
+  }
+
+  // --- separation steering so foes don't stack into one blob ---
+  for (let i = 0; i < w.foes.length; i++) {
+    for (let j = i + 1; j < w.foes.length; j++) {
+      const a = w.foes[i];
+      const b = w.foes[j];
+      if (a.mode === 2 || b.mode === 2) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 0.001 && d < 66) {
+        const push = ((66 - d) / 66) * 46 * dt;
+        const ux = dx / d;
+        const uy = dy / d;
+        a.x -= ux * push;
+        a.y -= uy * push * 0.6;
+        b.x += ux * push;
+        b.y += uy * push * 0.6;
+      }
+    }
+  }
 }
 
 function destroyRock(w: World, r: Rock, sfx: Sfx, opts: Opts, noScore = false) {
@@ -472,8 +727,9 @@ function destroyRock(w: World, r: Rock, sfx: Sfx, opts: Opts, noScore = false) {
 function destroyFoe(w: World, f: Foe, sfx: Sfx, opts: Opts, noScore = false) {
   explode(w, f.x, f.y, 95, opts, sfx);
   if (!noScore) {
-    w.score += ENEMY_SCORE;
-    w.pops.push(pop(f.x, f.y, `+${ENEMY_SCORE}`));
+    const pts = f.kind === 1 ? DIVER_SCORE : GUNNER_SCORE;
+    w.score += pts;
+    w.pops.push(pop(f.x, f.y, `+${pts}`));
     if (Math.random() < 0.25) w.drops.push({ x: f.x, y: f.y, vy: 95, dead: false });
   }
   f.hp = 0;
@@ -499,17 +755,21 @@ function damagePlayer(w: World, sfx: Sfx, opts: Opts) {
 }
 
 function updateFx(w: World, dt: number) {
-  for (const pt of w.parts) {
-    pt.life -= dt;
-    pt.x += pt.vx * dt;
-    pt.y += pt.vy * dt;
+  for (let i = 0; i < PART_MAX; i++) {
+    const pt = w.parts[i];
+    if (pt.life > 0) {
+      pt.life -= dt;
+      if (pt.life > 0) {
+        pt.x += pt.vx * dt;
+        pt.y += pt.vy * dt;
+      }
+    }
   }
-  w.parts = w.parts.filter((pt) => pt.life > 0);
   for (const s of w.pops) {
     s.life -= dt;
     s.y -= 34 * dt;
   }
-  w.pops = w.pops.filter((s) => s.life > 0);
+  compact(w.pops, (s) => s.life > 0);
   w.shake *= Math.exp(-6 * dt);
   if (w.shake < 0.2) w.shake = 0;
 }
@@ -552,17 +812,35 @@ function updateWorld(w: World, dt: number, io: IO) {
     const len = Math.hypot(kx, ky);
     p.vx = (kx / len) * PLAYER_SPEED;
     p.vy = (ky / len) * PLAYER_SPEED;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
     pointer.active = false;
   } else if (pointer.active) {
-    p.vx = clamp((pointer.x - p.x) * 10, -560, 560);
-    p.vy = clamp((pointer.y - p.y) * 10, -560, 560);
+    // Frame-rate-independent exponential approach with a dead-zone —
+    // no more oscillation/jitter around the cursor.
+    const dxp = pointer.x - p.x;
+    const dyp = pointer.y - p.y;
+    if (Math.hypot(dxp, dyp) > 2.5) {
+      const k = 1 - Math.exp(-13 * dt);
+      const nx = p.x + dxp * k;
+      const ny = p.y + dyp * k;
+      p.vx = (nx - p.x) / dt;
+      p.vy = (ny - p.y) / dt;
+      p.x = nx;
+      p.y = ny;
+    } else {
+      p.vx = 0;
+      p.vy = 0;
+    }
   } else {
     const damp = Math.exp(-10 * dt);
     p.vx *= damp;
     p.vy *= damp;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
   }
-  p.x = clamp(p.x + p.vx * dt, 26, W - 26);
-  p.y = clamp(p.y + p.vy * dt, 44, H - 30);
+  p.x = clamp(p.x, 26, W - 26);
+  p.y = clamp(p.y, 44, H - 30);
   p.tilt += (clamp(p.vx * 0.00075, -0.32, 0.32) - p.tilt) * Math.min(1, dt * 12);
 
   // ----- guns -----
@@ -588,19 +866,18 @@ function updateWorld(w: World, dt: number, io: IO) {
 
   // ----- engine trail -----
   if (!opts.reducedMotion) {
-    for (let i = 0; i < 2; i++) {
-      w.parts.push({
-        x: p.x + (Math.random() - 0.5) * 10,
-        y: p.y + 30,
-        vx: (Math.random() - 0.5) * 30,
-        vy: 130 + Math.random() * 60,
-        life: 0.3,
-        maxLife: 0.3,
-        size: 2.2 + Math.random() * 1.6,
-        color: Math.random() < 0.5 ? '#FF9A3C' : '#FFD23C',
-        ring: false,
-        maxR: 0,
-      });
+    const n = opts.lowPerf ? 1 : 2;
+    for (let i = 0; i < n; i++) {
+      emit(
+        w,
+        p.x + (Math.random() - 0.5) * 10,
+        p.y + 30,
+        (Math.random() - 0.5) * 30,
+        130 + Math.random() * 60,
+        0.3,
+        2.2 + Math.random() * 1.6,
+        Math.random() < 0.5 ? '#FF9A3C' : '#FFD23C',
+      );
     }
   }
 
@@ -613,7 +890,7 @@ function updateWorld(w: World, dt: number, io: IO) {
   if (w.elapsed > 10) {
     w.foeT -= dt;
     if (w.foeT <= 0) {
-      spawnFoe(w);
+      if (w.foes.length < (opts.lowPerf ? 3 : FOE_CAP)) spawnFoe(w);
       w.foeT = Math.max(2.1, 6.2 - w.elapsed * 0.05);
     }
   }
@@ -628,23 +905,8 @@ function updateWorld(w: World, dt: number, io: IO) {
     if (r.x > W - r.r * 0.4 && r.vx > 0) r.vx *= -1;
   }
 
-  // ----- foes -----
-  for (const f of w.foes) {
-    f.t += dt;
-    f.y += f.vy * dt;
-    f.x = f.baseX + Math.sin(f.t * f.freq) * f.amp;
-    if (f.hit > 0) f.hit -= dt;
-    f.fireT -= dt;
-    if (f.fireT <= 0 && f.y > 40 && f.y < H - 180) {
-      f.fireT = 1.5 + Math.random() * 1.1;
-      const dx = p.x - f.x;
-      const dy = p.y - f.y;
-      const d = Math.hypot(dx, dy) || 1;
-      const sp = 235 + Math.min(90, w.elapsed);
-      w.bolts.push(mkBolt(f.x, f.y + 22, (dx / d) * sp, (dy / d) * sp, false));
-      sfx.foeLaser();
-    }
-  }
+  // ----- smart foes -----
+  updateFoes(w, dt, sfx, opts);
 
   // ----- bolts & drops -----
   for (const b of w.bolts) {
@@ -729,11 +991,11 @@ function updateWorld(w: World, dt: number, io: IO) {
 
   updateFx(w, dt);
 
-  // ----- cull -----
-  w.rocks = w.rocks.filter((r) => r.hp > 0 && r.y < H + 80);
-  w.foes = w.foes.filter((f) => f.hp > 0 && f.y < H + 70);
-  w.bolts = w.bolts.filter((b) => !b.dead && b.y > -30 && b.y < H + 30 && b.x > -30 && b.x < W + 30);
-  w.drops = w.drops.filter((d) => !d.dead && d.y < H + 30);
+  // ----- cull (in-place, allocation-free) -----
+  compact(w.rocks, (r) => r.hp > 0 && r.y < H + 80);
+  compact(w.foes, (f) => f.hp > 0 && f.y < H + 70);
+  compact(w.bolts, (b) => !b.dead && b.y > -30 && b.y < H + 30 && b.x > -30 && b.x < W + 30);
+  compact(w.drops, (d) => !d.dead && d.y < H + 30);
 }
 
 /* ------------------------------------------------------------------ */
@@ -823,16 +1085,17 @@ function drawWorld(
   ctx: CanvasRenderingContext2D,
   w: World,
   assets: GameAssets,
+  rc: RenderCache,
   opts: Opts,
   time: number,
   status: Status,
 ) {
-  // Background
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#04050d');
-  g.addColorStop(0.55, '#0a0d1e');
-  g.addColorStop(1, '#101228');
-  ctx.fillStyle = g;
+  // Background (gradient cached — never rebuilt per frame)
+  if (rc.gradient) {
+    ctx.fillStyle = rc.gradient;
+  } else {
+    ctx.fillStyle = '#0a0d1e';
+  }
   ctx.fillRect(0, 0, W, H);
 
   ctx.save();
@@ -840,16 +1103,14 @@ function drawWorld(
     ctx.translate((Math.random() - 0.5) * w.shake, (Math.random() - 0.5) * w.shake);
   }
 
-  // Stars drift with absolute time so they animate in menu & pause too
-  for (const layer of STARS) {
-    ctx.fillStyle = '#DDE6FF';
-    for (const s of layer.stars) {
-      const y = (s.y + time * layer.speed) % (H + 4);
-      ctx.globalAlpha = layer.alpha * s.a;
-      ctx.fillRect(s.x, y, layer.size, layer.size);
-    }
+  // Pre-rendered star layers — 2 drawImage calls each, zero per-star state changes
+  for (let li = 0; li < STAR_DEFS.length; li++) {
+    const c = rc.stars[li];
+    if (!c) continue;
+    const off = (time * STAR_DEFS[li].speed) % H;
+    ctx.drawImage(c, 0, off - H);
+    ctx.drawImage(c, 0, off);
   }
-  ctx.globalAlpha = 1;
 
   if (status === 'menu') {
     ctx.restore();
@@ -861,14 +1122,15 @@ function drawWorld(
   // Drops
   for (const d of w.drops) drawDrop(ctx, d, time);
 
-  // Rocks
+  // Rocks (flash variant pre-rendered — no ctx.filter)
+  const rockFlash = rc.flash.asteroid;
   for (const r of w.rocks) {
     ctx.save();
     ctx.translate(r.x, r.y);
     ctx.rotate(r.rot);
-    if (r.hit > 0) ctx.filter = 'brightness(2.4) saturate(0.4)';
-    if (assets.asteroid) {
-      ctx.drawImage(assets.asteroid, -r.size / 2, -r.size / 2, r.size, r.size);
+    const img = r.hit > 0 && rockFlash ? rockFlash : assets.asteroid;
+    if (img) {
+      ctx.drawImage(img, -r.size / 2, -r.size / 2, r.size, r.size);
     } else {
       ctx.fillStyle = '#7A6A5A';
       ctx.beginPath();
@@ -878,13 +1140,17 @@ function drawWorld(
     ctx.restore();
   }
 
-  // Foes
+  // Foes (tilt into their velocity, flash on hit, glow when telegraphing)
+  const foeFlash = rc.flash.enemy;
   for (const f of w.foes) {
     ctx.save();
     ctx.translate(f.x, f.y);
-    ctx.rotate(Math.sin(f.t * 2.2) * 0.09);
-    if (f.hit > 0) ctx.filter = 'brightness(2.4) saturate(0.4)';
-    if (assets.enemy) {
+    ctx.rotate(clamp(f.vx * 0.0011, -0.26, 0.26));
+    if (f.hit > 0 && foeFlash) {
+      const dh = 64;
+      const dw = dh * (foeFlash.width / foeFlash.height);
+      ctx.drawImage(foeFlash, -dw / 2, -dh / 2, dw, dh);
+    } else if (assets.enemy) {
       const dh = 64;
       const dw = dh * (assets.enemy.width / assets.enemy.height);
       ctx.drawImage(assets.enemy, -dw / 2, -dh / 2, dw, dh);
@@ -893,6 +1159,16 @@ function drawWorld(
       ctx.fillRect(-22, -26, 44, 52);
     }
     ctx.restore();
+
+    if (f.teleT > 0) {
+      ctx.globalAlpha = 0.45 + 0.45 * Math.sin(time * 24);
+      ctx.strokeStyle = '#FF5A3C';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, ENEMY_R + 9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
   }
 
   // Bolts
@@ -914,8 +1190,10 @@ function drawWorld(
     ctx.restore();
   }
 
-  // Particles
-  for (const pt of w.parts) {
+  // Particles (fixed pool)
+  for (let i = 0; i < PART_MAX; i++) {
+    const pt = w.parts[i];
+    if (pt.life <= 0) continue;
     const a = Math.max(0, pt.life / pt.maxLife);
     if (pt.ring) {
       ctx.globalAlpha = a * 0.8;
@@ -956,6 +1234,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const worldRef = useRef<World | null>(null);
   const assetsRef = useRef<GameAssets>({});
+  const rcRef = useRef<RenderCache>({ gradient: null, stars: [], flash: {} });
   const keysRef = useRef<Set<string>>(new Set());
   const pointerRef = useRef({ x: W / 2, y: H - 90, active: false });
   const statusRef = useRef<Status>('loading');
@@ -1043,12 +1322,28 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
 
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    // Cap devicePixelRatio — a full 2x backing store is a big cost on low-end GPUs
+    const dpr = Math.min(optsRef.current.lowPerf ? 1 : 1.75, window.devicePixelRatio || 1);
     canvas.width = W * dpr;
     canvas.height = H * dpr;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Build the render cache: background gradient + pre-rendered star layers
+    const rc = rcRef.current;
+    try {
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#04050d');
+      g.addColorStop(0.55, '#0a0d1e');
+      g.addColorStop(1, '#101228');
+      rc.gradient = g;
+    } catch {
+      /* gradient optional */
+    }
+    if (rc.stars.length === 0) {
+      rc.stars = STAR_DEFS.map((l) => buildStarCanvas(l));
+    }
 
     let cancelled = false;
     const loadPromise = Promise.all(
@@ -1065,7 +1360,10 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
     loadPromise
       .then((entries) => {
         if (cancelled) return;
-        for (const [k, im] of entries) assetsRef.current[k] = im;
+        for (const [k, im] of entries) {
+          assetsRef.current[k] = im;
+          rc.flash[k] = buildFlash(im);
+        }
         worldRef.current = createWorld();
         applyStatus('menu');
       })
@@ -1096,7 +1394,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
         updateWorld(w, dt, io);
         if (w.over && statusRef.current === 'playing') gameOverRef.current();
       }
-      drawWorld(ctx, w, assetsRef.current, optsRef.current, now / 1000, statusRef.current);
+      drawWorld(ctx, w, assetsRef.current, rc, optsRef.current, now / 1000, statusRef.current);
     };
     raf = requestAnimationFrame(tick);
 
@@ -1187,13 +1485,13 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
         {/* Top bar */}
         <div className="flex items-center justify-between font-mono text-xs">
           <div className="flex items-center gap-2 text-neutral-200 font-bold tracking-wide">
-            <RocketIcon className="w-4 h-4 text-[#CCFF00]" />
+            <RocketIcon className="w-4 h-4 text-[color:var(--accent)]" />
             ROCKET RAMPAGE
           </div>
           <div className="flex items-center gap-2">
             {best > 0 && (
               <span className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-neutral-300">
-                <Trophy className="w-3.5 h-3.5 text-[#CCFF00]" /> Best {best}
+                <Trophy className="w-3.5 h-3.5 text-[color:var(--accent)]" /> Best {best}
               </span>
             )}
             <button
@@ -1248,7 +1546,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
                 className="w-16 animate-pulse drop-shadow-[0_0_18px_rgba(204,255,0,0.35)]"
               />
               <h2 className="font-mono text-3xl sm:text-4xl font-black tracking-tight text-neutral-50">
-                ROCKET <span className="text-[#CCFF00]">RAMPAGE</span>
+                ROCKET <span className="text-[color:var(--accent)]">RAMPAGE</span>
               </h2>
               <p className="font-mono text-xs text-neutral-300 max-w-md leading-relaxed">
                 Destroy asteroids · outgun alien fighters · grab repair kits.
@@ -1261,13 +1559,13 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">P / ESC — pause</span>
               </div>
               {best > 0 && (
-                <span className="flex items-center gap-1.5 font-mono text-xs text-[#CCFF00]">
+                <span className="flex items-center gap-1.5 font-mono text-xs text-[color:var(--accent)]">
                   <Trophy className="w-3.5 h-3.5" /> Best score: {best}
                 </span>
               )}
               <button
                 onClick={startGame}
-                className="mt-1 px-8 py-3 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
+                className="mt-1 px-8 py-3 bg-[var(--accent)] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
               >
                 ▶ LAUNCH MISSION
               </button>
@@ -1280,7 +1578,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
               <h2 className="font-mono text-3xl font-black tracking-widest text-neutral-100">PAUSED</h2>
               <button
                 onClick={togglePause}
-                className="px-6 py-2.5 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black transition-colors cursor-pointer"
+                className="px-6 py-2.5 bg-[var(--accent)] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black transition-colors cursor-pointer"
               >
                 ▶ Resume
               </button>
@@ -1293,7 +1591,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 backdrop-blur-[2px] text-center px-6">
               <h2 className="font-mono text-3xl sm:text-4xl font-black tracking-widest text-rose-400">GAME OVER</h2>
               {newBest && (
-                <span className="font-mono text-xs font-bold text-[#CCFF00] animate-pulse tracking-widest">
+                <span className="font-mono text-xs font-bold text-[color:var(--accent)] animate-pulse tracking-widest">
                   ★ NEW BEST SCORE ★
                 </span>
               )}
@@ -1302,7 +1600,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
               <div className="flex items-center gap-3 mt-3">
                 <button
                   onClick={startGame}
-                  className="px-6 py-2.5 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
+                  className="px-6 py-2.5 bg-[var(--accent)] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
                 >
                   ⟳ Play again
                 </button>

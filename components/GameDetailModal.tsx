@@ -5,6 +5,14 @@ import { Heart, X } from 'lucide-react';
 import { Game } from '@/lib/games';
 import { GameArt } from './GameArt';
 import { RocketRampageGame } from './RocketRampageGame';
+import { RuneBastionGame } from './RuneBastionGame';
+
+/** Maps a playable game id to its live component. */
+function PlayableGame({ id, onBack }: { id: string; onBack: () => void }) {
+  if (id === 'rocket-rampage') return <RocketRampageGame onBack={onBack} />;
+  if (id === 'rune-bastion') return <RuneBastionGame onBack={onBack} />;
+  return null;
+}
 
 interface GameDetailModalProps {
   game: Game | null;
@@ -176,7 +184,7 @@ export function GameDetailModal({
             {/* Title & category */}
             <div className="flex items-start justify-between gap-4 mb-3">
               <div>
-                <span className="text-[11px] font-mono uppercase tracking-wider text-[#CCFF00] block mb-1">
+                <span className="text-[11px] font-mono uppercase tracking-wider text-[color:var(--accent)] block mb-1">
                   {game.category}
                 </span>
                 <h2 id="modal-title" className="text-2xl font-bold text-neutral-100 font-sans tracking-tight">
@@ -188,12 +196,12 @@ export function GameDetailModal({
                 onClick={() => onToggleFavourite(game.id)}
                 className={`p-2 rounded-lg border text-xs font-mono flex items-center gap-1.5 transition-colors cursor-pointer ${
                   isFavourite
-                    ? 'bg-[#CCFF00]/10 border-[#CCFF00] text-[#CCFF00]'
+                    ? 'bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] border-[var(--accent)] text-[color:var(--accent)]'
                     : 'bg-neutral-800 border-neutral-700 text-neutral-400 hover:text-neutral-200'
                 }`}
                 aria-label={isFavourite ? 'Remove from saved' : 'Save game'}
               >
-                <Heart className={`w-4 h-4 ${isFavourite ? 'fill-current text-[#CCFF00]' : ''}`} />
+                <Heart className={`w-4 h-4 ${isFavourite ? 'fill-current text-[color:var(--accent)]' : ''}`} />
                 <span>{isFavourite ? 'Saved' : 'Save'}</span>
               </button>
             </div>
@@ -207,7 +215,7 @@ export function GameDetailModal({
                 <ul className="space-y-1 text-neutral-300">
                   {game.controls.map((ctrl, i) => (
                     <li key={i} className="flex items-center gap-1.5">
-                      <span className="text-[#CCFF00]">▸</span> {ctrl}
+                      <span className="text-[color:var(--accent)]">▸</span> {ctrl}
                     </li>
                   ))}
                 </ul>
@@ -241,7 +249,7 @@ export function GameDetailModal({
               {game.playable ? (
                 <button
                   onClick={handleLaunch}
-                  className="w-full sm:w-auto px-6 py-3 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
+                  className="w-full sm:w-auto px-6 py-3 bg-[var(--accent)] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
                 >
                   Play {game.title} →
                 </button>
@@ -259,7 +267,7 @@ export function GameDetailModal({
       </div>
 
       {/* Full-screen game overlay — sibling of the modal so `fixed` positioning isn't affected by the modal's backdrop-filter */}
-      {isPlaying && <RocketRampageGame onBack={() => setIsPlaying(false)} />}
+        {isPlaying && <PlayableGame id={game.id} onBack={() => setIsPlaying(false)} />}
     </>
   );
 }

@@ -40,7 +40,7 @@ export function Header({
             aria-label="DueNever homepage"
           >
             <span className="font-mono text-xl sm:text-2xl font-black tracking-tight text-neutral-100 group-hover:scale-105 group-active:scale-95 transition-transform duration-150 inline-block origin-left">
-              Due<span className="text-[#CCFF00]">Never</span>
+              Due<span className="text-[color:var(--accent)]">Never</span>
             </span>
             <span className="ml-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 border border-neutral-700 hidden sm:inline-block">
               web
@@ -53,7 +53,7 @@ export function Header({
               onClick={() => setActiveTab('all')}
               className={`px-3 py-1.5 rounded transition-colors cursor-pointer ${
                 activeTab === 'all'
-                  ? 'bg-neutral-800 text-[#CCFF00] font-bold shadow-xs'
+                  ? 'bg-neutral-800 text-[color:var(--accent)] font-bold shadow-xs'
                   : 'text-neutral-400 hover:text-neutral-200'
               }`}
             >
@@ -63,13 +63,13 @@ export function Header({
               onClick={() => setActiveTab('saved')}
               className={`px-3 py-1.5 rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'saved'
-                  ? 'bg-neutral-800 text-[#CCFF00] font-bold shadow-xs'
+                  ? 'bg-neutral-800 text-[color:var(--accent)] font-bold shadow-xs'
                   : 'text-neutral-400 hover:text-neutral-200'
               }`}
             >
               <span>Saved</span>
               {savedCount > 0 && (
-                <span className="px-1.5 py-0.2 text-[10px] bg-[#CCFF00] text-black font-bold rounded-full">
+                <span className="px-1.5 py-0.2 text-[10px] bg-[var(--accent)] text-black font-bold rounded-full">
                   {savedCount}
                 </span>
               )}
@@ -115,7 +115,7 @@ export function Header({
                     type="checkbox"
                     checked={settings.reducedMotion}
                     onChange={(e) => onUpdateSettings({ ...settings, reducedMotion: e.target.checked })}
-                    className="accent-[#CCFF00]"
+                    className="accent-[var(--accent)]"
                   />
                 </label>
 
@@ -125,13 +125,21 @@ export function Header({
                     type="checkbox"
                     checked={settings.lowPerformance}
                     onChange={(e) => onUpdateSettings({ ...settings, lowPerformance: e.target.checked })}
-                    className="accent-[#CCFF00]"
+                    className="accent-[var(--accent)]"
                   />
                 </label>
 
                 <div className="text-[10px] text-neutral-500 pt-1 border-t border-neutral-800">
                   Optimized for budget laptops & low-end browsers.
                 </div>
+
+                <a
+                  href="/control-center"
+                  className="flex items-center justify-between pt-2 border-t border-neutral-800 text-neutral-300 hover:text-[color:var(--accent)] transition-colors cursor-pointer font-bold"
+                >
+                  <span>Control Center</span>
+                  <span className="text-[9px] font-normal text-neutral-500">admin</span>
+                </a>
               </div>
             )}
           </div>

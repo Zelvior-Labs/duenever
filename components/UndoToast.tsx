@@ -30,7 +30,7 @@ export function UndoToast({ toast, onDismiss }: UndoToastProps) {
             toast.onUndo?.();
             onDismiss();
           }}
-          className="px-2 py-1 bg-[#CCFF00] text-black font-bold text-[11px] rounded hover:bg-lime-300 transition-colors cursor-pointer"
+          className="px-2 py-1 bg-[var(--accent)] text-black font-bold text-[11px] rounded hover:bg-lime-300 transition-colors cursor-pointer"
         >
           Undo
         </button>
