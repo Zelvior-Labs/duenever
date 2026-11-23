@@ -146,7 +146,7 @@ export function CommandMenu({
                   }}
                   onMouseEnter={() => setSelectedIndex(idx)}
                   className={`flex items-center justify-between px-3 py-2 rounded text-xs font-mono cursor-pointer transition-colors ${
-                    isSelected ? 'bg-[#CCFF00] text-black font-semibold' : 'text-neutral-200 hover:bg-neutral-800'
+                    isSelected ? 'bg-[var(--accent)] text-black font-semibold' : 'text-neutral-200 hover:bg-neutral-800'
                   }`}
                 >
                   <span className="truncate">{item.title}</span>

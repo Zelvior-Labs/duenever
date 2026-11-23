@@ -4,11 +4,31 @@ from PIL import Image
 import numpy as np
 import os
 
-DIR = os.path.join(os.path.dirname(__file__), '..', 'public', 'games', 'rocket-rampage')
+PUB = os.path.join(os.path.dirname(__file__), '..', 'public', 'games')
+
+# game dir -> [(name, max_dim, jpeg_quality or None)]
+JOBS = {
+    'rocket-rampage': [
+        ('rocket', 168, None),
+        ('asteroid', 184, None),
+        ('enemy', 168, None),
+        ('banner', 1600, 84),
+    ],
+    'rune-bastion': [
+        ('tower-mage', 150, None),
+        ('tower-ranger', 150, None),
+        ('tower-frost', 150, None),
+        ('enemy-goblin', 104, None),
+        ('enemy-brute', 140, None),
+        ('enemy-dragon', 176, None),
+        ('banner', 1600, 84),
+    ],
+}
 
 
-def key_out(name: str, max_dim: int, jpeg_quality: int | None = None) -> None:
-    src = os.path.join(DIR, name + '.png')
+def key_out(game: str, name: str, max_dim: int, jpeg_quality: int | None) -> None:
+    game_dir = os.path.join(PUB, game)
+    src = os.path.join(game_dir, 'raw', name + '.png') if os.path.isdir(os.path.join(game_dir, 'raw')) else os.path.join(game_dir, name + '.png')
     img = Image.open(src).convert('RGB')
     arr = np.array(img).astype(np.int16)
     r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
@@ -16,15 +36,12 @@ def key_out(name: str, max_dim: int, jpeg_quality: int | None = None) -> None:
     mx = np.maximum(r, b)
     diff = g - mx  # green dominance
 
-    # Hard key: strong pure-green background
     hard = (g > 90) & (diff > 60)
-    # Soft edge: greenish fringe -> partial alpha (kills jaggies)
     soft = (~hard) & (diff > 22) & (g > 70)
 
     alpha = np.where(hard, 0, 255).astype(np.uint8)
     alpha[soft] = 110
 
-    # Despill: clamp green channel to max(r,b) on kept pixels (removes green fringe)
     keep = alpha > 0
     excess = np.clip(diff, 0, None)
     g2 = np.where(keep, g - excess, g)
@@ -42,17 +59,23 @@ def key_out(name: str, max_dim: int, jpeg_quality: int | None = None) -> None:
         im = im.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
 
     if jpeg_quality:  # opaque banner -> jpg
-        dst = os.path.join(DIR, name + '.jpg')
+        dst = os.path.join(game_dir, name + '.jpg')
         im.convert('RGB').save(dst, 'JPEG', quality=jpeg_quality, optimize=True, progressive=True)
-        os.remove(src)
     else:
-        dst = os.path.join(DIR, name + '.png')
+        dst = os.path.join(game_dir, name + '.png')
         im.save(dst, optimize=True)
     kb = os.path.getsize(dst) // 1024
-    print(f'{name}: {im.size} -> {dst} ({kb} KB)')
+    print(f'{game}/{name}: {im.size} -> {dst} ({kb} KB)')
 
 
-key_out('rocket', 168)
-key_out('asteroid', 184)
-key_out('enemy', 168)
-key_out('banner', 1600, jpeg_quality=84)
+for game, jobs in JOBS.items():
+    raw_dir = os.path.join(PUB, game, 'raw')
+    if not os.path.isdir(raw_dir):
+        print(f'skip {game} (no raw/ source directory — already processed)')
+        continue
+    for name, max_dim, q in jobs:
+        src = os.path.join(raw_dir, name + '.png')
+        if not os.path.exists(src):
+            print(f'skip {game}/{name} (missing raw)')
+            continue
+        key_out(game, name, max_dim, q)

@@ -1,4 +1,4 @@
-export type GameCategory = 'Quick' | 'Puzzle' | 'Reflex' | 'Chill' | 'Two-player';
+export type GameCategory = 'Quick' | 'Puzzle' | 'Reflex' | 'Chill' | 'Two-player' | 'Strategy';
 
 export interface GameArtAssets {
   /** Rendered on catalogue cards */
@@ -26,7 +26,7 @@ export interface Game {
   artSeed?: number;
 }
 
-export const CATEGORIES: GameCategory[] = ['Quick', 'Puzzle', 'Reflex', 'Chill', 'Two-player'];
+export const CATEGORIES: GameCategory[] = ['Quick', 'Puzzle', 'Reflex', 'Chill', 'Two-player', 'Strategy'];
 
 export const GAMES: Game[] = [
   {
@@ -49,6 +49,27 @@ export const GAMES: Game[] = [
     art: {
       cardImage: '/games/rocket-rampage/banner.jpg',
       bannerImage: '/games/rocket-rampage/banner.jpg',
+    },
+  },
+  {
+    id: 'rune-bastion',
+    title: 'Rune Bastion',
+    slug: 'rune-bastion',
+    tagline: 'Hold the rune bastion against goblin hordes, golems and dragons.',
+    description:
+      'Fantasy tower defense on a torch-lit stone causeway. Build Arcane Spires, Ranger Posts and Frost Keeps on rune pads, upgrade them through three levels, and call waves early for bonus gold. Goblins swarm, stone golems shrug off arrows, and a dragon boss arrives every eighth wave. If the runes fall, the realm falls.',
+    category: 'Strategy' as GameCategory,
+    tags: ['Tower Defense', 'Fantasy', 'Waves', 'Single Player'],
+    controls: [
+      '1 / 2 / 3 pick tower · click a rune pad to build',
+      'Click a tower to upgrade (U) or sell (S)',
+      'Space / N calls the next wave early for bonus gold · P pause',
+    ],
+    playable: true,
+    accentColor: '#C09AFF',
+    art: {
+      cardImage: '/games/rune-bastion/banner.jpg',
+      bannerImage: '/games/rune-bastion/banner.jpg',
     },
   },
 ];

@@ -1485,13 +1485,13 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
         {/* Top bar */}
         <div className="flex items-center justify-between font-mono text-xs">
           <div className="flex items-center gap-2 text-neutral-200 font-bold tracking-wide">
-            <RocketIcon className="w-4 h-4 text-[#CCFF00]" />
+            <RocketIcon className="w-4 h-4 text-[color:var(--accent)]" />
             ROCKET RAMPAGE
           </div>
           <div className="flex items-center gap-2">
             {best > 0 && (
               <span className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-neutral-900 border border-neutral-700 rounded text-neutral-300">
-                <Trophy className="w-3.5 h-3.5 text-[#CCFF00]" /> Best {best}
+                <Trophy className="w-3.5 h-3.5 text-[color:var(--accent)]" /> Best {best}
               </span>
             )}
             <button
@@ -1546,7 +1546,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
                 className="w-16 animate-pulse drop-shadow-[0_0_18px_rgba(204,255,0,0.35)]"
               />
               <h2 className="font-mono text-3xl sm:text-4xl font-black tracking-tight text-neutral-50">
-                ROCKET <span className="text-[#CCFF00]">RAMPAGE</span>
+                ROCKET <span className="text-[color:var(--accent)]">RAMPAGE</span>
               </h2>
               <p className="font-mono text-xs text-neutral-300 max-w-md leading-relaxed">
                 Destroy asteroids · outgun alien fighters · grab repair kits.
@@ -1559,13 +1559,13 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">P / ESC — pause</span>
               </div>
               {best > 0 && (
-                <span className="flex items-center gap-1.5 font-mono text-xs text-[#CCFF00]">
+                <span className="flex items-center gap-1.5 font-mono text-xs text-[color:var(--accent)]">
                   <Trophy className="w-3.5 h-3.5" /> Best score: {best}
                 </span>
               )}
               <button
                 onClick={startGame}
-                className="mt-1 px-8 py-3 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
+                className="mt-1 px-8 py-3 bg-[var(--accent)] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
               >
                 ▶ LAUNCH MISSION
               </button>
@@ -1578,7 +1578,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
               <h2 className="font-mono text-3xl font-black tracking-widest text-neutral-100">PAUSED</h2>
               <button
                 onClick={togglePause}
-                className="px-6 py-2.5 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black transition-colors cursor-pointer"
+                className="px-6 py-2.5 bg-[var(--accent)] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black transition-colors cursor-pointer"
               >
                 ▶ Resume
               </button>
@@ -1591,7 +1591,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 backdrop-blur-[2px] text-center px-6">
               <h2 className="font-mono text-3xl sm:text-4xl font-black tracking-widest text-rose-400">GAME OVER</h2>
               {newBest && (
-                <span className="font-mono text-xs font-bold text-[#CCFF00] animate-pulse tracking-widest">
+                <span className="font-mono text-xs font-bold text-[color:var(--accent)] animate-pulse tracking-widest">
                   ★ NEW BEST SCORE ★
                 </span>
               )}
@@ -1600,7 +1600,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
               <div className="flex items-center gap-3 mt-3">
                 <button
                   onClick={startGame}
-                  className="px-6 py-2.5 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
+                  className="px-6 py-2.5 bg-[var(--accent)] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer"
                 >
                   ⟳ Play again
                 </button>

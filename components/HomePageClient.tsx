@@ -20,10 +20,11 @@ import { GameDetailModal } from './GameDetailModal';
 import { CommandMenu } from './CommandMenu';
 import { UndoToast, ToastMessage } from './UndoToast';
 import { GameArt } from './GameArt';
+import { SiteConfig, applyGameOverrides } from '@/lib/site-config';
 
 type SortOption = 'featured' | 'az' | 'recent';
 
-export function HomePageClient() {
+export function HomePageClient({ config }: { config: SiteConfig }) {
   const [activeTab, setActiveTab] = useState<'all' | 'saved'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<GameCategory | 'All'>('All');
@@ -41,6 +42,9 @@ export function HomePageClient() {
   const searchTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const [, startTransition] = useTransition();
+
+  // Catalog with Control Center overrides applied (hidden games removed)
+  const games = useMemo(() => applyGameOverrides(GAMES, config), [config]);
 
   // Load local storage on hydration & listen for cross-tab storage changes (SWR)
   useEffect(() => {
@@ -81,7 +85,7 @@ export function HomePageClient() {
     setFavourites(updated);
     setStoredFavourites(updated);
 
-    const game = GAMES.find(g => g.id === gameId);
+    const game = games.find(g => g.id === gameId);
     const gameName = game?.title || 'Game';
 
     if (isFav) {
@@ -121,9 +125,10 @@ export function HomePageClient() {
     });
   };
 
-  const featuredGame = useMemo(() => GAMES.find(g => g.featured) ?? GAMES[0], []);
+  const featuredGame = useMemo(() => games.find((g) => g.featured) ?? games[0], [games]);
 
   const playFeaturedNow = () => {
+    if (!featuredGame) return;
     setAutoLaunch(true);
     setSelectedGame(featuredGame);
   };
@@ -135,7 +140,7 @@ export function HomePageClient() {
 
   // Filtered & Sorted Games memo
   const filteredGames = useMemo(() => {
-    let result = GAMES;
+    let result = games;
 
     if (activeTab === 'saved') {
       result = result.filter(g => favourites.includes(g.id));
@@ -177,17 +182,17 @@ export function HomePageClient() {
 
   const recentGames = useMemo(() => {
     return recents
-      .map(r => GAMES.find(g => g.id === r.id))
+      .map(r => games.find(g => g.id === r.id))
       .filter((g): g is Game => g !== undefined)
       .slice(0, 4);
   }, [recents]);
 
   return (
-    <div className="min-h-screen bg-[#111111] text-neutral-100 flex flex-col font-sans selection:bg-[#CCFF00] selection:text-black">
+    <div className="min-h-screen bg-[#111111] text-neutral-100 flex flex-col font-sans selection:bg-[var(--accent)] selection:text-black">
       {/* Skip to main content for accessibility */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:bg-[#CCFF00] focus:text-black focus:font-mono focus:font-bold focus:rounded"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:bg-[var(--accent)] focus:text-black focus:font-mono focus:font-bold focus:rounded"
       >
         Skip to main content
       </a>
@@ -204,51 +209,54 @@ export function HomePageClient() {
       />
 
       <main id="main-content" className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-6 flex flex-col gap-8">
-        {/* Featured hero — real rendered key art */}
+        {/* Featured hero — real rendered key art, editable from the Control Center */}
+        {config.hero.enabled && featuredGame && (
         <section className="relative overflow-hidden rounded-xl border-2 border-neutral-800 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.7)] min-h-[250px] sm:min-h-[300px] flex">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/games/rocket-rampage/banner.jpg"
-            alt="Rocket Rampage key art — a rocket blazing through an asteroid field pursued by alien fighters"
+            src={config.hero.image || featuredGame.art?.bannerImage || featuredGame.art?.cardImage || ''}
+            alt={`${config.hero.headline} key art`}
             draggable={false}
             className="absolute inset-0 w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-transparent" aria-hidden="true" />
 
           <div className="relative z-10 flex flex-col justify-center gap-3 p-6 sm:p-10 max-w-xl">
-            <span className="w-fit px-2 py-0.5 bg-[#CCFF00] text-black font-mono text-[10px] font-bold rounded tracking-wider uppercase shadow-xs">
-              ★ New · Featured
-            </span>
+            {config.hero.badge && (
+              <span className="w-fit px-2 py-0.5 bg-[var(--accent)] text-black font-mono text-[10px] font-bold rounded tracking-wider uppercase shadow-xs">
+                {config.hero.badge}
+              </span>
+            )}
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight font-sans text-neutral-50 drop-shadow-[0_2px_12px_rgba(0,0,0,0.8)]">
-              Rocket Rampage
+              {config.hero.headline}
             </h1>
             <p className="text-xs sm:text-sm font-mono text-neutral-300 max-w-md leading-relaxed drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">
-              Shred asteroids with auto-cannons, outgun alien fighters, and survive escalating
-              waves. Your high score is the only thing due.
+              {config.hero.subtext}
             </p>
             <div className="flex flex-wrap items-center gap-3 pt-1">
               <button
                 onClick={playFeaturedNow}
-                className="px-5 py-2.5 bg-[#CCFF00] hover:bg-lime-300 text-black font-mono text-xs font-bold rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 active:scale-95 transition-all cursor-pointer"
+                className="px-5 py-2.5 bg-[var(--accent)] hover:bg-lime-300 text-black font-mono text-xs font-bold rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 active:scale-95 transition-all cursor-pointer"
               >
-                ▶ Play now
+                {config.hero.cta}
               </button>
               <button
                 onClick={() => setSelectedGame(featuredGame)}
                 className="px-4 py-2.5 bg-neutral-900/85 border border-neutral-600 text-neutral-200 font-mono text-xs rounded-lg hover:bg-neutral-800 transition-colors cursor-pointer"
               >
-                Game details
+                {config.hero.secondaryCta}
               </button>
             </div>
           </div>
         </section>
+        )}
 
         {/* Recently Played Section (Renders ONLY when real local history exists) */}
-        {recentGames.length > 0 && activeTab === 'all' && !searchQuery && selectedCategory === 'All' && (
+        {config.flags.showRecents && recentGames.length > 0 && activeTab === 'all' && !searchQuery && selectedCategory === 'All' && (
           <section className="bg-neutral-900/60 border border-neutral-800 rounded-xl p-4 sm:p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-mono font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-2">
-                <History className="w-3.5 h-3.5 text-[#CCFF00]" /> Recently Played
+                <History className="w-3.5 h-3.5 text-[color:var(--accent)]" /> Recently Played
               </h2>
               <button
                 onClick={handleClearRecents}
@@ -282,12 +290,12 @@ export function HomePageClient() {
         <section className="flex flex-col gap-4">
           <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
             {/* Category Filter Pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none font-mono text-xs">
+            <div className={`${config.flags.showCategories ? 'flex' : 'hidden'} items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none font-mono text-xs`}>
               <button
                 onClick={() => setSelectedCategory('All')}
                 className={`px-3 py-1.5 rounded-lg border shrink-0 transition-colors cursor-pointer ${
                   selectedCategory === 'All'
-                    ? 'bg-[#CCFF00] text-black font-bold border-[#CCFF00]'
+                    ? 'bg-[var(--accent)] text-black font-bold border-[var(--accent)]'
                     : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-700'
                 }`}
               >
@@ -299,7 +307,7 @@ export function HomePageClient() {
                   onClick={() => setSelectedCategory(cat)}
                   className={`px-3 py-1.5 rounded-lg border shrink-0 transition-colors cursor-pointer ${
                     selectedCategory === cat
-                      ? 'bg-[#CCFF00] text-black font-bold border-[#CCFF00]'
+                      ? 'bg-[var(--accent)] text-black font-bold border-[var(--accent)]'
                       : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-neutral-200 hover:border-neutral-700'
                   }`}
                 >
@@ -316,7 +324,7 @@ export function HomePageClient() {
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   placeholder="Filter titles or tags..."
-                  className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs font-mono text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-[#CCFF00]"
+                  className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs font-mono text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-[var(--accent)]"
                 />
                 {searchQuery && (
                   <button
@@ -332,7 +340,7 @@ export function HomePageClient() {
               <select
                 value={sortBy}
                 onChange={e => setSortBy(e.target.value as SortOption)}
-                className="bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs font-mono text-neutral-300 focus:outline-none focus:border-[#CCFF00] cursor-pointer"
+                className="bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs font-mono text-neutral-300 focus:outline-none focus:border-[var(--accent)] cursor-pointer"
                 aria-label="Sort games by"
               >
                 <option value="featured">Sort: Featured</option>
@@ -355,7 +363,7 @@ export function HomePageClient() {
                   setSelectedCategory('All');
                   setActiveTab('all');
                 }}
-                className="text-[#CCFF00] hover:underline cursor-pointer"
+                className="text-[color:var(--accent)] hover:underline cursor-pointer"
               >
                 Clear all filters
               </button>
@@ -397,9 +405,10 @@ export function HomePageClient() {
       </main>
 
       {/* Minimal Functional Footer */}
+      {config.flags.showFooter && (
       <footer className="border-t border-neutral-850 mt-12 py-6 px-4 sm:px-8 text-center text-xs font-mono text-neutral-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-          <span>DueNever © {new Date().getFullYear()} — Browser games for bored people.</span>
+          <span>DueNever © {new Date().getFullYear()} — {config.site.footerText}</span>
           <div className="flex items-center gap-4 text-[11px]">
             <span>Low-spec friendly</span>
             <span>•</span>
@@ -409,6 +418,7 @@ export function HomePageClient() {
           </div>
         </div>
       </footer>
+      )}
 
       {/* Game Details Modal / Sheet */}
       <GameDetailModal
@@ -428,7 +438,7 @@ export function HomePageClient() {
       <CommandMenu
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
-        games={GAMES}
+        games={games}
         onSelectGame={g => setSelectedGame(g)}
         onSelectCategory={cat => setSelectedCategory(cat as GameCategory)}
         onShowSaved={() => setActiveTab('saved')}

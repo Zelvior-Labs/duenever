@@ -35,15 +35,15 @@ export const GameCard = forwardRef<HTMLDivElement, GameCardProps>(function GameC
       tabIndex={0}
       role="button"
       aria-label={`${game.title} - ${game.tagline}`}
-      className={`group relative flex flex-col bg-neutral-900 border-2 rounded-xl overflow-hidden cursor-pointer transition-all duration-150 outline-none focus-visible:ring-2 focus-visible:ring-[#CCFF00] ${
+      className={`group relative flex flex-col bg-neutral-900 border-2 rounded-xl overflow-hidden cursor-pointer transition-all duration-150 outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
         isFeatured
-          ? 'border-[#CCFF00] shadow-[4px_4px_0px_0px_rgba(204,255,0,0.3)] hover:shadow-[6px_6px_0px_0px_rgba(204,255,0,0.5)]'
+          ? 'border-[var(--accent)] shadow-[4px_4px_0px_0px_rgba(204,255,0,0.3)] hover:shadow-[6px_6px_0px_0px_rgba(204,255,0,0.5)]'
           : 'border-neutral-800 hover:border-neutral-600 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.6)] hover:shadow-[5px_5px_0px_0px_rgba(0,0,0,0.8)]'
       }`}
     >
       {/* Featured pill banner if featured */}
       {isFeatured && (
-        <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-[#CCFF00] text-black font-mono text-[10px] font-bold rounded tracking-wider uppercase shadow-xs">
+        <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-[var(--accent)] text-black font-mono text-[10px] font-bold rounded tracking-wider uppercase shadow-xs">
           ★ Featured
         </div>
       )}
@@ -58,13 +58,13 @@ export const GameCard = forwardRef<HTMLDivElement, GameCardProps>(function GameC
       {/* Favourite action button (44px min touch area with hit-slop) */}
       <button
         onClick={(e) => onToggleFavourite(game.id, e)}
-        className="absolute top-1.5 right-1.5 z-10 p-2 text-neutral-400 hover:text-[#CCFF00] bg-black/60 hover:bg-black/90 rounded-full transition-colors cursor-pointer"
+        className="absolute top-1.5 right-1.5 z-10 p-2 text-neutral-400 hover:text-[color:var(--accent)] bg-black/60 hover:bg-black/90 rounded-full transition-colors cursor-pointer"
         aria-label={isFavourite ? `Remove ${game.title} from favourites` : `Add ${game.title} to favourites`}
         title={isFavourite ? 'Unsave' : 'Save'}
       >
         <Heart
           className={`w-4 h-4 transition-transform duration-150 active:scale-125 ${
-            isFavourite ? 'fill-[#CCFF00] text-[#CCFF00]' : 'text-neutral-400'
+            isFavourite ? 'fill-[var(--accent)] text-[color:var(--accent)]' : 'text-neutral-400'
           }`}
         />
       </button>
@@ -77,7 +77,7 @@ export const GameCard = forwardRef<HTMLDivElement, GameCardProps>(function GameC
       {/* Card Body */}
       <div className="p-4 flex-1 flex flex-col justify-between">
         <div>
-          <h3 className="font-sans font-bold text-base text-neutral-100 group-hover:text-[#CCFF00] transition-colors leading-snug">
+          <h3 className="font-sans font-bold text-base text-neutral-100 group-hover:text-[color:var(--accent)] transition-colors leading-snug">
             {game.title}
           </h3>
           <p className="font-mono text-xs text-neutral-400 mt-1 line-clamp-2 leading-relaxed">
