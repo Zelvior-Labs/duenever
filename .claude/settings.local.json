@@ -25,7 +25,20 @@
       "Bash(git pull *)",
       "Bash(git merge *)",
       "Bash(git commit -q -m 'Merge remote-tracking branch '\\\\''origin/main'\\\\'' *)",
-      "Bash(git commit -q -m 'Update local settings *)"
+      "Bash(git commit -q -m 'Update local settings *)",
+      "Bash(git push *)",
+      "Bash(git branch *)",
+      "Bash(vercel --version)",
+      "Bash(npm ls *)",
+      "Bash(vercel whoami *)",
+      "Bash(vercel ls *)",
+      "Bash(vercel teams *)",
+      "Bash(vercel link *)",
+      "Bash(vercel domains *)",
+      "Bash(vercel --yes --prod)",
+      "Bash(vercel inspect *)",
+      "Bash(vercel alias *)",
+      "Bash(git commit -q -m 'Add Vercel project config and env gitignore *)"
     ]
   }
 }
