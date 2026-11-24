@@ -1,11 +1,7 @@
-import type { Metadata } from 'next';
+import { pageMetadata, PUBLIC_PAGES } from '@/lib/seo';
 import Link from 'next/link';
 
-export const metadata: Metadata = {
-  title: 'About DueNever',
-  description: 'Learn about DueNever browser games and how to get in touch.',
-  alternates: { canonical: '/about' },
-};
+export const metadata = pageMetadata({ ...PUBLIC_PAGES['/about'], path: '/about' });
 
 export default function AboutPage() {
   return <main className="min-h-screen bg-neutral-950 px-5 py-10 text-neutral-100"><div className="mx-auto max-w-3xl space-y-7">

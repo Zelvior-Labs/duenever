@@ -86,6 +86,8 @@ export const GameCard = forwardRef<HTMLDivElement, GameCardProps>(function GameC
           </p>
         </div>
 
+        <a href={`/games/${game.slug}`} onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()} className="mt-3 w-fit font-mono text-xs text-lime-300 underline">Game page</a>
+
         {/* Tags footer */}
         <div className="mt-3 pt-3 border-t border-neutral-850 flex items-center justify-between font-mono text-[11px] text-neutral-400">
           <span>{game.controls[0] || 'Browser'}</span>

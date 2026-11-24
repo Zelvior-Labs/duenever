@@ -1,5 +1,6 @@
 'use client';
 
+import { SOUND_KEY } from '@/lib/game-audio';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Pause, Play, Shield, Volume2, VolumeX, X } from 'lucide-react';
 import { getStoredSettings } from '@/lib/storage';
@@ -11,7 +12,7 @@ import { getStoredSettings } from '@/lib/storage';
 const W = 900;
 const H = 560;
 const BEST_KEY = 'duenever_rune_best_v1';
-const MUTE_KEY = 'duenever_rune_muted_v1';
+const MUTE_KEY = SOUND_KEY;
 
 const START_GOLD = 180;
 const START_LIVES = 20;
@@ -196,10 +197,14 @@ interface RenderCache {
 class Sfx {
   private ctx: AudioContext | null = null;
   private noiseBuf: AudioBuffer | null = null;
+  private sources = new Set<AudioScheduledSourceNode>();
   muted = false;
+  stop() { for (const source of this.sources) { try { source.stop(); } catch {} } this.sources.clear(); }
+  private track(source: AudioScheduledSourceNode) { this.sources.add(source); source.onended = () => { this.sources.delete(source); source.disconnect(); }; }
 
   ensure() {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || this.muted) return;
+    try {
     if (!this.ctx) {
       const AC =
         window.AudioContext ||
@@ -211,7 +216,8 @@ class Sfx {
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
       this.noiseBuf = buf;
     }
-    if (this.ctx.state === 'suspended') void this.ctx.resume();
+    if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => {});
+    } catch { this.close(); } // Audio support must not interrupt the game.
   }
 
   private tone(type: OscillatorType, f0: number, f1: number, dur: number, vol: number, delay = 0) {
@@ -226,6 +232,7 @@ class Sfx {
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(g);
     g.connect(this.ctx.destination);
+    this.track(osc);
     osc.start(t);
     osc.stop(t + dur + 0.02);
   }
@@ -245,6 +252,7 @@ class Sfx {
     src.connect(f);
     f.connect(g);
     g.connect(this.ctx.destination);
+    this.track(src);
     src.start(t);
     src.stop(t + dur);
   }
@@ -279,14 +287,14 @@ class Sfx {
   }
   upgrade() {
     this.tone('sine', 520, 520, 0.07, 0.06);
-    window.setTimeout(() => this.tone('sine', 780, 780, 0.12, 0.06), 70);
+    this.tone('sine', 780, 780, 0.12, 0.06, .07);
   }
   sell() {
     this.tone('sine', 700, 350, 0.12, 0.05);
   }
   horn() {
     this.tone('sawtooth', 220, 220, 0.28, 0.06);
-    window.setTimeout(() => this.tone('sawtooth', 330, 330, 0.36, 0.06), 220);
+    this.tone('sawtooth', 330, 330, 0.36, 0.06, .22);
   }
   deny() {
     this.tone('square', 140, 90, 0.12, 0.06);
@@ -296,6 +304,7 @@ class Sfx {
     this.noise(0.7, 800, 0.16);
   }
   close() {
+    this.stop();
     void this.ctx?.close().catch(() => undefined);
     this.ctx = null;
   }
@@ -1275,8 +1284,8 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
   }, [applyStatus]);
 
   const togglePause = useCallback(() => {
-    if (statusRef.current === 'playing') applyStatus('paused');
-    else if (statusRef.current === 'paused') applyStatus('playing');
+    if (statusRef.current === 'playing') { sfxRef.current?.stop(); applyStatus('paused'); }
+    else if (statusRef.current === 'paused') { sfxRef.current?.ensure(); applyStatus('playing'); }
   }, [applyStatus]);
 
   const togglePauseRef = useRef(togglePause);
@@ -1301,16 +1310,10 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
   };
 
   const toggleMute = () => {
-    setMuted((m) => {
-      const nm = !m;
-      if (sfxRef.current) sfxRef.current.muted = nm;
-      try {
-        localStorage.setItem(MUTE_KEY, nm ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
-      return nm;
-    });
+    const next = !muted;
+    if (sfxRef.current) { sfxRef.current.muted = next; if (next) sfxRef.current.stop(); else sfxRef.current.ensure(); }
+    setMuted(next);
+    try { localStorage.setItem(MUTE_KEY, next ? '1' : '0'); } catch {}
   };
 
   const toggleSpeed = () => {
@@ -1389,7 +1392,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     let storedMute = false;
     try {
-      storedMute = localStorage.getItem(MUTE_KEY) === '1';
+      storedMute = (localStorage.getItem(MUTE_KEY) ?? localStorage.getItem('duenever_rune_muted_v1')) === '1';
       setMuted(storedMute);
       setBest(parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0);
       const s = getStoredSettings();
@@ -1463,8 +1466,15 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
       }
     };
     raf = requestAnimationFrame(tick);
+    const syncMute = (event: StorageEvent) => {
+      if (event.key !== MUTE_KEY || !sfxRef.current) return;
+      const next = event.newValue === '1'; sfxRef.current.muted = next; setMuted(next);
+      if (next) sfxRef.current.stop();
+    };
+    window.addEventListener('storage', syncMute);
 
     return () => {
+      window.removeEventListener('storage', syncMute);
       cancelled = true;
       cancelAnimationFrame(raf);
       sfxRef.current?.close();

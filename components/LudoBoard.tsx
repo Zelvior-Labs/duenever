@@ -11,7 +11,7 @@ const home = [Array.from({length:6},(_,i):[number,number]=>[i+1,7]), Array.from(
 const safe = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
 const cellStyle = (x: number, y: number) => ({ left: `${x * 100 / 15}%`, top: `${y * 100 / 15}%`, width: `${100 / 15}%`, height: `${100 / 15}%` });
 
-export function LudoBoard({ board, seat, canMove, busy, onMove }: { board: BoardState; seat: number; canMove: boolean; busy: boolean; onMove: (token: number) => void }) {
+export function LudoBoard({ board, seat, canMove, busy, onMove, reducedMotion = false }: { board: BoardState; seat: number; canMove: boolean; busy: boolean; onMove: (token: number) => void; reducedMotion?: boolean }) {
   const legal = canMove ? legalLudo(board) : [];
   const tokens = board.ludo.flatMap((pieces, player) => pieces.flatMap((progress, index) => {
     if (progress === 57) return [];
@@ -35,7 +35,7 @@ export function LudoBoard({ board, seat, canMove, busy, onMove }: { board: Board
       const offset = stack.findIndex(other => other.player === t.player && other.index === t.index);
       const slot = offset % 4;
       const movable = t.player === seat && legal.includes(t.index);
-      return <button key={`${t.player}-${t.index}`} type="button" aria-label={`Player ${t.player + 1} token ${t.index + 1}`} disabled={!movable || busy} onClick={()=>onMove(t.index)} className="absolute flex items-center justify-center rounded-full transition-[left,top,transform] duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:cursor-default" style={{ left:`${(t.x + 0.5 + (stack.length > 1 ? (slot % 2 - .5) * .26 : 0)) * 100 / 15}%`, top:`${(t.y + 0.5 + (stack.length > 1 ? (Math.floor(slot / 2) - .5) * .22 : 0)) * 100 / 15}%`, width:'7%', height:'7%', transform:'translate(-50%, -50%)', zIndex: movable ? 30 : 10 + offset, background:movable?'rgba(204,255,0,.32)':'transparent', boxShadow:movable?'0 0 0 2px #ccff00, 0 0 14px #ccff0099':undefined }}>
+      return <button key={`${t.player}-${t.index}`} type="button" aria-label={`Player ${t.player + 1} token ${t.index + 1}`} disabled={!movable || busy} onClick={()=>onMove(t.index)} className={`absolute flex items-center justify-center rounded-full ${reducedMotion ? '' : 'transition-[left,top,transform] duration-200 motion-reduce:transition-none'} focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:cursor-default`} style={{ left:`${(t.x + 0.5 + (stack.length > 1 ? (slot % 2 - .5) * .26 : 0)) * 100 / 15}%`, top:`${(t.y + 0.5 + (stack.length > 1 ? (Math.floor(slot / 2) - .5) * .22 : 0)) * 100 / 15}%`, width:'7%', height:'7%', transform:'translate(-50%, -50%)', zIndex: movable ? 30 : 10 + offset, background:movable?'rgba(204,255,0,.32)':'transparent', boxShadow:movable?'0 0 0 2px #ccff00, 0 0 14px #ccff0099':undefined }}>
         {/* Generated product-rendered token; color variants preserve the same silhouette. */}
         <img src={`/games/ludo/token-${tokenImages[t.player]}.png`} alt="" draggable={false} className="h-[96%] w-[80%] object-contain drop-shadow-[0_3px_2px_rgba(0,0,0,0.6)]" />
       </button>;

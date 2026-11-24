@@ -19,6 +19,8 @@ const csp = [
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Social image generation reads bundled game artwork at runtime.
+  outputFileTracingIncludes: { '/og': ['./public/games/*/banner.jpg'] },
   async headers() {
     return [{ source: '/:path*', headers: [
       { key: 'Content-Security-Policy', value: csp },
