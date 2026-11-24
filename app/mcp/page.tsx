@@ -1,4 +1,7 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
+
+export const metadata: Metadata = { title: 'Play with an LLM | DueNever', description: 'Connect an assistant to a private chess or Ludo room.', alternates: { canonical: '/mcp' } };
 
 const install = `git clone https://github.com/Zelvior-Labs/duenever.git
 cd duenever

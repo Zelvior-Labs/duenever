@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useTransition, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useTransition, useRef, Suspense, lazy } from 'react';
 import { History, Trash2, X } from 'lucide-react';
 import { Game, GAMES, CATEGORIES, GameCategory } from '@/lib/games';
 import {
@@ -17,11 +17,12 @@ import {
 import { Header } from './Header';
 import { BrandMark } from './BrandMark';
 import { GameCard } from './GameCard';
-import { GameDetailModal } from './GameDetailModal';
-import { CommandMenu } from './CommandMenu';
+const GameDetailModal = lazy(() => import('./GameDetailModal').then(m => ({ default: m.GameDetailModal })));
+const CommandMenu = lazy(() => import('./CommandMenu').then(m => ({ default: m.CommandMenu })));
 import { UndoToast, ToastMessage } from './UndoToast';
 import { GameArt } from './GameArt';
 import { SiteConfig, applyGameOverrides } from '@/lib/site-config';
+import { heroImage } from '@/lib/image-variants';
 
 type SortOption = 'featured' | 'az' | 'recent';
 
@@ -218,7 +219,8 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
         <section className="relative overflow-hidden rounded-xl border-2 border-neutral-800 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.7)] min-h-[250px] sm:min-h-[300px] flex">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={config.hero.image || featuredGame.art?.bannerImage || featuredGame.art?.cardImage || ''}
+            src={heroImage(config.hero.image || featuredGame.art?.bannerImage || featuredGame.art?.cardImage || '')}
+            fetchPriority="high"
             alt={`${config.hero.headline} key art`}
             draggable={false}
             className="absolute inset-0 w-full h-full object-cover"
@@ -264,7 +266,7 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
               </h2>
               <button
                 onClick={handleClearRecents}
-                className="text-[11px] font-mono text-neutral-500 hover:text-neutral-300 transition-colors cursor-pointer flex items-center gap-1"
+                className="text-[11px] font-mono text-neutral-400 hover:text-neutral-300 transition-colors cursor-pointer flex items-center gap-1"
               >
                 <Trash2 className="w-3 h-3" /> Clear history
               </button>
@@ -282,7 +284,7 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
                   </div>
                   <div className="overflow-hidden">
                     <div className="text-xs font-bold truncate text-neutral-200">{game.title}</div>
-                    <div className="text-[10px] font-mono text-neutral-500">{game.category}</div>
+                    <div className="text-[10px] font-mono text-neutral-400">{game.category}</div>
                   </div>
                 </div>
               ))}
@@ -325,15 +327,16 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
               <div className="relative flex-1 sm:w-64">
                 <input
                   type="text"
+                  aria-label="Filter games by title or tag"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   placeholder="Filter titles or tags..."
-                  className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs font-mono text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-[var(--accent)]"
+                  className="w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-1.5 text-xs font-mono text-neutral-100 placeholder-neutral-400 focus:outline-none focus:border-[var(--accent)]"
                 />
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery('')}
-                    className="absolute right-2 top-1.5 text-neutral-500 hover:text-neutral-300 cursor-pointer"
+                    className="absolute right-2 top-1.5 text-neutral-400 hover:text-neutral-300 cursor-pointer"
                     aria-label="Clear search"
                   >
                     <X className="w-4 h-4" />
@@ -359,7 +362,7 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
             {[null, 1, 2, 4, 6].map(n => <button key={n ?? 'all'} onClick={() => setPlayers(n)} className={`rounded-lg border px-3 py-2 ${players === n ? 'border-[var(--accent)] bg-[var(--accent)] text-black' : 'border-neutral-700 bg-neutral-900 text-neutral-300'}`}>{n === null ? 'Any' : n === 1 ? 'Single player' : `${n} players`}</button>)}
           </div>
           {/* Filter count & active filter summary */}
-          <div className="flex items-center justify-between text-xs font-mono text-neutral-500 pt-1">
+          <div className="flex items-center justify-between text-xs font-mono text-neutral-400 pt-1">
             <span>
               Showing {filteredGames.length} {filteredGames.length === 1 ? 'game' : 'games'}
               {activeTab === 'saved' && ' in Saved'}
@@ -381,6 +384,7 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
         </section>
 
         {/* Game Library Grid */}
+        <h2 className="sr-only">Game library</h2>
         {filteredGames.length === 0 ? (
           <div className="py-16 text-center border-2 border-dashed border-neutral-800 rounded-xl p-8">
             <p className="font-mono text-sm text-neutral-400">No games found matching your filters.</p>
@@ -416,7 +420,7 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
 
       {/* Minimal Functional Footer */}
       {config.flags.showFooter && (
-      <footer className="border-t border-neutral-850 mt-12 py-6 px-4 sm:px-8 text-center text-xs font-mono text-neutral-500">
+      <footer className="border-t border-neutral-850 mt-12 py-6 px-4 sm:px-8 text-center text-xs font-mono text-neutral-400">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <span className="flex items-center gap-2"><BrandMark className="w-7 h-5" /> DueNever © {new Date().getFullYear()} — {config.site.footerText}</span>
           <div className="flex items-center gap-4 text-[11px]">
@@ -425,13 +429,15 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
             <span>No installs</span>
             <span>•</span>
             <span>Private rooms</span>
+            <a href="/about" className="text-neutral-300 hover:underline">About &amp; contact</a>
+            <a href="/privacy" className="text-neutral-300 hover:underline">Privacy</a>
           </div>
         </div>
       </footer>
       )}
 
       {/* Game Details Modal / Sheet */}
-      <GameDetailModal
+      {selectedGame && <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-black/90 text-white">Loading game details…</div>}><GameDetailModal
         game={selectedGame}
         onClose={() => {
           setSelectedGame(null);
@@ -442,10 +448,10 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
         onGameLaunched={handleGameLaunched}
         triggerRef={clickedCardRef}
         autoLaunch={autoLaunch}
-      />
+      /></Suspense>}
 
       {/* Command Menu (Ctrl+K) */}
-      <CommandMenu
+      {isSearchOpen && <Suspense fallback={<div role="status" className="fixed inset-0 z-50 grid place-items-center bg-black/90 text-white">Loading search…</div>}><CommandMenu
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         games={games}
@@ -458,7 +464,7 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
           setActiveTab('all');
         }}
         triggerRef={searchTriggerRef.current}
-      />
+      /></Suspense>}
 
       {/* Undo Toast Notifications */}
       <UndoToast toast={toast} onDismiss={() => setToast(null)} />

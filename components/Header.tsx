@@ -38,7 +38,7 @@ export function Header({
               setActiveTab('all');
             }}
             className="group relative flex items-center select-none"
-            aria-label="DueNever homepage"
+            aria-label="DueNever web homepage"
           >
             <BrandMark className="w-9 h-7 sm:w-10 sm:h-8 mr-0 sm:mr-2 group-hover:scale-105 transition-transform" />
             <span className="hidden sm:inline-block font-mono text-xl sm:text-2xl font-black tracking-tight text-neutral-100 group-hover:scale-105 group-active:scale-95 transition-transform duration-150 origin-left">
@@ -88,7 +88,7 @@ export function Header({
             aria-label="Search games (Cmd+K)"
           >
             <Search className="w-3.5 h-3.5 text-neutral-400" />
-            <span className="hidden md:inline">Search...</span>
+            <span className="hidden md:inline">Search games</span>
             <kbd className="hidden sm:inline-block text-[10px] font-mono px-1.5 py-0.5 bg-neutral-800 border border-neutral-700 text-neutral-400 rounded">
               ⌘K
             </kbd>
@@ -131,7 +131,7 @@ export function Header({
                   />
                 </label>
 
-                <div className="text-[10px] text-neutral-500 pt-1 border-t border-neutral-800">
+                <div className="text-[10px] text-neutral-400 pt-1 border-t border-neutral-800">
                   Optimized for budget laptops & low-end browsers.
                 </div>
 

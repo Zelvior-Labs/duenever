@@ -58,6 +58,7 @@ export const GameCard = forwardRef<HTMLDivElement, GameCardProps>(function GameC
       {/* Favourite action button (44px min touch area with hit-slop) */}
       <button
         onClick={(e) => onToggleFavourite(game.id, e)}
+        onKeyDown={(e) => e.stopPropagation()}
         className="absolute top-1.5 right-1.5 z-10 p-2 text-neutral-400 hover:text-[color:var(--accent)] bg-black/60 hover:bg-black/90 rounded-full transition-colors cursor-pointer"
         aria-label={isFavourite ? `Remove ${game.title} from favourites` : `Add ${game.title} to favourites`}
         title={isFavourite ? 'Unsave' : 'Save'}
@@ -86,7 +87,7 @@ export const GameCard = forwardRef<HTMLDivElement, GameCardProps>(function GameC
         </div>
 
         {/* Tags footer */}
-        <div className="mt-3 pt-3 border-t border-neutral-850 flex items-center justify-between font-mono text-[11px] text-neutral-500">
+        <div className="mt-3 pt-3 border-t border-neutral-850 flex items-center justify-between font-mono text-[11px] text-neutral-400">
           <span>{game.controls[0] || 'Browser'}</span>
           <span className="px-1.5 py-0.5 bg-neutral-800 text-neutral-300 rounded text-[10px]">
             {game.category}

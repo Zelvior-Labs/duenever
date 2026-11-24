@@ -1,15 +1,15 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { Heart, X } from 'lucide-react';
 import { Game } from '@/lib/games';
 import { GameArt } from './GameArt';
-import { RocketRampageGame } from './RocketRampageGame';
-import { RuneBastionGame } from './RuneBastionGame';
-import { TreasureDriftGame } from './TreasureDriftGame';
-import { CircuitMergeGame } from './CircuitMergeGame';
-import { SkylineSprintGame } from './SkylineSprintGame';
-import { BoardGameRoom } from './BoardGameRoom';
+const RocketRampageGame = lazy(() => import('./RocketRampageGame').then(m => ({ default: m.RocketRampageGame })));
+const RuneBastionGame = lazy(() => import('./RuneBastionGame').then(m => ({ default: m.RuneBastionGame })));
+const TreasureDriftGame = lazy(() => import('./TreasureDriftGame').then(m => ({ default: m.TreasureDriftGame })));
+const CircuitMergeGame = lazy(() => import('./CircuitMergeGame').then(m => ({ default: m.CircuitMergeGame })));
+const SkylineSprintGame = lazy(() => import('./SkylineSprintGame').then(m => ({ default: m.SkylineSprintGame })));
+const BoardGameRoom = lazy(() => import('./BoardGameRoom').then(m => ({ default: m.BoardGameRoom })));
 
 /** Maps a playable game id to its live component. */
 function PlayableGame({ id, onBack }: { id: string; onBack: () => void }) {
@@ -275,7 +275,7 @@ export function GameDetailModal({
       </div>
 
       {/* Full-screen game overlay — sibling of the modal so `fixed` positioning isn't affected by the modal's backdrop-filter */}
-        {isPlaying && <PlayableGame id={game.id} onBack={() => setIsPlaying(false)} />}
+        {isPlaying && <Suspense fallback={<div role="status" className="fixed inset-0 z-[60] grid place-items-center bg-black text-white">Loading game…</div>}><PlayableGame id={game.id} onBack={() => setIsPlaying(false)} /></Suspense>}
     </>
   );
 }
