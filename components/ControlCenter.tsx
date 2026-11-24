@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, LogOut, RotateCcw, Save, TriangleAlert } from 'lucide-react';
 import { SiteConfig, DEFAULT_CONFIG } from '@/lib/site-config';
 import { GAMES, CATEGORIES, GameCategory } from '@/lib/games';
+import { BrandMark } from './BrandMark';
 
 interface Props {
   initialConfig: SiteConfig;
@@ -126,7 +127,8 @@ export function ControlCenter({ initialConfig, offline }: Props) {
       {/* Top bar */}
       <header className="sticky top-0 z-30 bg-neutral-950/95 backdrop-blur border-b-2 border-neutral-800 px-4 sm:px-6 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
-          <div>
+          <div className="flex items-center min-w-0">
+            <BrandMark className="w-8 h-6 mr-2" />
             <span className="font-mono text-lg font-black tracking-tight">
               Control <span className="text-[#CCFF00]">Center</span>
             </span>

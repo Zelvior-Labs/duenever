@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Lock } from 'lucide-react';
+import { BrandMark } from './BrandMark';
 
 export function ControlCenterLogin() {
   const router = useRouter();
@@ -41,7 +41,7 @@ export function ControlCenterLogin() {
         className="w-full max-w-sm bg-neutral-900 border-2 border-neutral-700 rounded-xl p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,0.7)]"
       >
         <div className="flex items-center gap-2 mb-1">
-          <Lock className="w-4 h-4 text-[color:var(--accent)]" />
+          <BrandMark className="w-8 h-6" />
           <h1 className="font-mono text-lg font-black tracking-tight">CONTROL CENTER</h1>
         </div>
         <p className="text-xs font-mono text-neutral-400 mb-5">Restricted area. Admin access only.</p>
