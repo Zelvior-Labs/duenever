@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { Heart, X } from 'lucide-react';
 import { Game } from '@/lib/games';
 import { GameArt } from './GameArt';
+const TheLastLineGame = lazy(() => import('./TheLastLineGame').then(m => ({ default: m.TheLastLineGame })));
 const RocketRampageGame = lazy(() => import('./RocketRampageGame').then(m => ({ default: m.RocketRampageGame })));
 const RuneBastionGame = lazy(() => import('./RuneBastionGame').then(m => ({ default: m.RuneBastionGame })));
 const TreasureDriftGame = lazy(() => import('./TreasureDriftGame').then(m => ({ default: m.TreasureDriftGame })));
@@ -13,6 +14,7 @@ const BoardGameRoom = lazy(() => import('./BoardGameRoom').then(m => ({ default:
 
 /** Maps a playable game id to its live component. */
 function PlayableGame({ id, onBack }: { id: string; onBack: () => void }) {
+  if (id === 'the-last-line') return <TheLastLineGame onBack={onBack} />;
   if (id === 'rocket-rampage') return <RocketRampageGame onBack={onBack} />;
   if (id === 'rune-bastion') return <RuneBastionGame onBack={onBack} />;
   if (id === 'treasure-drift') return <TreasureDriftGame onBack={onBack} />;

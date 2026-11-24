@@ -31,6 +31,15 @@ export const CATEGORIES: GameCategory[] = ['Quick', 'Puzzle', 'Reflex', 'Chill',
 
 export const GAMES: Game[] = [
   {
+    id: 'the-last-line', title: 'The Last Line', slug: 'the-last-line', category: 'Strategy', playerCounts: [1],
+    tagline: 'Fifteen minutes. One voice. A decision that cannot wait.',
+    description: 'Take the night desk during a flood emergency in a 15-minute real-time psychological story. Inspect conflicting evidence, answer a persuasive caller and decide what to put on the record. Your decisions shape the ending. Pause anytime.',
+    tags: ['Interactive Fiction', 'Psychological', 'Choices', 'Single Player'],
+    controls: ['Tap or click to inspect files and choose a response', 'One decision per minute · P or Escape to pause'],
+    playable: true, accentColor: '#E2B668',
+    art: { cardImage: '/games/the-last-line/banner.jpg', bannerImage: '/games/the-last-line/banner.jpg' },
+  },
+  {
     playerCounts: [1],
     id: 'rocket-rampage',
     title: 'Rocket Rampage',

@@ -1,5 +1,5 @@
 // Pre-optimized variants of the bundled artwork; custom image URLs remain unchanged.
-const games = ['rocket-rampage', 'rune-bastion', 'treasure-drift', 'skyline-sprint', 'circuit-merge', 'ludo', 'chess'];
+const games = ['the-last-line', 'rocket-rampage', 'rune-bastion', 'treasure-drift', 'skyline-sprint', 'circuit-merge', 'ludo', 'chess'];
 export function cardImage(src: string): string {
   return games.reduce((url, game) => url === `/games/${game}/banner.jpg` ? `/games/${game}/card.webp` : url, src);
 }
