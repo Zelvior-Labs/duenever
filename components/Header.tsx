@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Search, Settings as SettingsIcon } from 'lucide-react';
 import { Settings } from '@/lib/storage';
+import { BrandMark } from './BrandMark';
 
 interface HeaderProps {
   activeTab: 'all' | 'saved';
@@ -39,7 +40,8 @@ export function Header({
             className="group relative flex items-center select-none"
             aria-label="DueNever homepage"
           >
-            <span className="font-mono text-xl sm:text-2xl font-black tracking-tight text-neutral-100 group-hover:scale-105 group-active:scale-95 transition-transform duration-150 inline-block origin-left">
+            <BrandMark className="w-9 h-7 sm:w-10 sm:h-8 mr-0 sm:mr-2 group-hover:scale-105 transition-transform" />
+            <span className="hidden sm:inline-block font-mono text-xl sm:text-2xl font-black tracking-tight text-neutral-100 group-hover:scale-105 group-active:scale-95 transition-transform duration-150 origin-left">
               Due<span className="text-[color:var(--accent)]">Never</span>
             </span>
             <span className="ml-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 border border-neutral-700 hidden sm:inline-block">

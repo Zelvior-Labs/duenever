@@ -15,6 +15,7 @@ import {
   RecentItem,
 } from '@/lib/storage';
 import { Header } from './Header';
+import { BrandMark } from './BrandMark';
 import { GameCard } from './GameCard';
 import { GameDetailModal } from './GameDetailModal';
 import { CommandMenu } from './CommandMenu';
@@ -408,7 +409,7 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
       {config.flags.showFooter && (
       <footer className="border-t border-neutral-850 mt-12 py-6 px-4 sm:px-8 text-center text-xs font-mono text-neutral-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-          <span>DueNever © {new Date().getFullYear()} — {config.site.footerText}</span>
+          <span className="flex items-center gap-2"><BrandMark className="w-7 h-5" /> DueNever © {new Date().getFullYear()} — {config.site.footerText}</span>
           <div className="flex items-center gap-4 text-[11px]">
             <span>Low-spec friendly</span>
             <span>•</span>
