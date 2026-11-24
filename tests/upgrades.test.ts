@@ -6,7 +6,7 @@ import { newBoard, boardAction } from '../lib/board-games';
 import { ludoMovePreview } from '../lib/ludo-preview';
 
 test('rocket drops and shields include all upgrades and absorb one hit', () => {
-  assert.deepEqual([0,.25,.5,.75].map(n=>chooseRocketDrop(()=>n)), ['repair','rapid','spread','shield']);
+  assert.deepEqual([0,.2,.4,.6,.8].map(n=>chooseRocketDrop(()=>n)), ['repair','rapid','spread','shield','emp']);
   assert.deepEqual(absorbHit(2,true),{lives:2,shield:false});
   assert.deepEqual(absorbHit(2,false),{lives:1,shield:false});
 });

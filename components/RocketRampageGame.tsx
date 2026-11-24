@@ -1,6 +1,6 @@
 'use client';
 
-import { rocketCombo } from '@/lib/arcade-features';
+import { rocketCombo, clearHostileFire } from '@/lib/arcade-features';
 import { absorbHit, chooseRocketDrop, type RocketDrop } from '@/lib/arcade-upgrades';
 import { SOUND_KEY } from '@/lib/game-audio';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -43,6 +43,7 @@ const ASSET_SRC = {
   asteroid: '/games/rocket-rampage/asteroid.png',
   enemy: '/games/rocket-rampage/enemy.png',
   shield: '/games/rocket-rampage/shield.png',
+  emp: '/games/rocket-rampage/emp.png',
 } as const;
 
 type AssetKey = keyof typeof ASSET_SRC;
@@ -324,6 +325,7 @@ interface World {
   best: number;
   lives: number;
   shield: boolean;
+  emp: boolean;
   elapsed: number;
   wave: number;
   waveBannerT: number;
@@ -427,6 +429,7 @@ function createWorld(): World {
     best: readBest(),
     lives: MAX_LIVES,
     shield: false,
+    emp: false,
     elapsed: 0,
     wave: 1,
     waveBannerT: 2,
@@ -1029,7 +1032,9 @@ function updateWorld(w: World, dt: number, io: IO) {
   for (const d of w.drops) {
     if (!d.dead && hit(p.x, p.y, PLAYER_R + 6, d.x, d.y, 13)) {
       d.dead = true;
-      if (d.kind === 'shield') {
+      if (d.kind === 'emp') {
+        w.emp = true; w.pops.push(pop(d.x, d.y, 'EMP READY'));
+      } else if (d.kind === 'shield') {
         w.shield = true;
         w.pops.push(pop(d.x, d.y, 'SHIELD READY'));
       } else if (d.kind !== 'repair') {
@@ -1076,7 +1081,8 @@ function drawBolt(ctx: CanvasRenderingContext2D, b: Bolt) {
   }
 }
 
-function drawDrop(ctx: CanvasRenderingContext2D, d: Drop, time: number, shield?: HTMLImageElement) {
+function drawDrop(ctx: CanvasRenderingContext2D, d: Drop, time: number, shield?: HTMLImageElement, emp?: HTMLImageElement) {
+  if (d.kind === 'emp' && emp) { ctx.drawImage(emp, d.x - 18, d.y - 18, 36, 36); return; }
   if (d.kind === 'shield' && shield) { ctx.drawImage(shield, d.x - 18, d.y - 18, 36, 36); return; }
   const r = 11 + Math.sin(time * 6 + d.x) * 1.2;
   ctx.fillStyle = d.kind === 'repair' ? '#3EE06E' : d.kind === 'rapid' ? '#FFB22C' : '#AD8CFF';
@@ -1092,7 +1098,7 @@ function drawDrop(ctx: CanvasRenderingContext2D, d: Drop, time: number, shield?:
     ctx.fillRect(d.x - 6, d.y - 1.8, 12, 3.6);
   } else {
     ctx.font = `bold 14px ${MONO}`; ctx.textAlign = 'center';
-    ctx.fillText(d.kind === 'rapid' ? 'R' : 'S', d.x, d.y + 5);
+    ctx.fillText(d.kind === 'rapid' ? 'R' : d.kind === 'emp' ? 'E' : 'S', d.x, d.y + 5);
   }
 }
 
@@ -1127,6 +1133,8 @@ function drawHud(ctx: CanvasRenderingContext2D, w: World, rocket?: HTMLImageElem
   if (w.shield) { ctx.fillStyle = '#76ecff'; ctx.fillText('SHIELD READY', 18, 84); }
 
   if (w.combo > 0) { ctx.fillStyle = '#ffcf6b'; ctx.fillText(`COMBO ${w.combo} · ${w.multiplier}x`, 18, 101); }
+
+  if (w.emp) { ctx.fillStyle = '#d6aaff'; ctx.fillText('EMP READY · E', 18, 118); }
 
   // Lives as mini rocket icons
   for (let i = 0; i < w.lives; i++) {
@@ -1193,7 +1201,7 @@ function drawWorld(
   const p = w.player;
 
   // Drops
-  for (const d of w.drops) drawDrop(ctx, d, time, assets.shield);
+  for (const d of w.drops) drawDrop(ctx, d, time, assets.shield, assets.emp);
 
   // Rocks (flash variant pre-rendered — no ctx.filter)
   const rockFlash = rc.flash.asteroid;
@@ -1325,6 +1333,8 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
   const [finalScore, setFinalScore] = useState(0);
   const [newBest, setNewBest] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [empReady, setEmpReady] = useState(false);
+  const empMirror = useRef(false);
 
   const applyStatus = useCallback((s: Status) => {
     statusRef.current = s;
@@ -1339,10 +1349,20 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
   const startGame = useCallback(() => {
     sfxRef.current?.ensure();
     worldRef.current = createWorld();
+    empMirror.current = false; setEmpReady(false);
     setFinalScore(0);
     setNewBest(false);
     applyStatus('playing');
   }, [applyStatus]);
+
+  const useEmp = useCallback(() => {
+    const w = worldRef.current;
+    if (!w || statusRef.current !== 'playing' || !w.emp || w.dying > 0 || w.over) return;
+    w.emp = false; clearHostileFire(w.bolts);
+    w.pops.push(pop(w.player.x, w.player.y, 'EMP PULSE'));
+    sfxRef.current?.burst(); empMirror.current = false; setEmpReady(false);
+  }, []);
+  const useEmpRef = useRef(useEmp); useEmpRef.current = useEmp;
 
   const togglePauseRef = useRef(togglePause);
   togglePauseRef.current = togglePause;
@@ -1463,6 +1483,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
       if (!w) return;
       if (statusRef.current === 'playing') {
         updateWorld(w, dt, io);
+        if (w.emp !== empMirror.current) { empMirror.current = w.emp; setEmpReady(w.emp); }
         if (w.over && statusRef.current === 'playing') gameOverRef.current();
       }
       drawWorld(ctx, w, assetsRef.current, rc, optsRef.current, now / 1000, statusRef.current);
@@ -1496,7 +1517,8 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
           e.preventDefault();
           togglePauseRef.current();
         }
-        if (e.code === 'Space') {
+        if (e.code === 'KeyE' && st === 'playing' && !e.repeat) useEmpRef.current();
+        if (e.code === 'Space' && st === 'playing') {
           const w = worldRef.current;
           if (w) w.player.burstReq = true;
         }
@@ -1647,7 +1669,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
                 ROCKET <span className="text-[color:var(--accent)]">RAMPAGE</span>
               </h2>
               <p className="font-mono text-xs text-neutral-300 max-w-md leading-relaxed">
-                Destroy asteroids · outgun alien fighters · collect repair, weapon and one-hit shield drops.
+                Collect an EMP charge and press E to clear enemy fire. Grab repairs, weapons and shields.
                 <br />
                 Chain takedowns within four seconds for up to 4× points. Cannons auto-fire.
               </p>
@@ -1713,8 +1735,8 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
           )}
         </div>
 
-        {playing && <button type="button" onClick={() => { if (worldRef.current) worldRef.current.player.burstReq = true; }} className="sm:hidden min-h-12 w-full rounded-lg bg-[var(--accent)] text-black font-mono font-bold">FIRE SPREAD BURST</button>}
-        <p className="hidden sm:block text-[10px] font-mono text-neutral-500 text-center">Drag to steer on touch · burst button fires spread · mouse / WASD and Space on desktop · collect R or S power-ups</p>
+        {playing && <div className="flex gap-1"><button type="button" onClick={() => { if (worldRef.current) worldRef.current.player.burstReq = true; }} className="sm:hidden min-h-12 flex-1 rounded-lg bg-[var(--accent)] text-black font-mono font-bold">FIRE SPREAD BURST</button><button type="button" onClick={useEmp} disabled={!empReady} className="min-h-12 flex-1 rounded-lg bg-violet-800 text-white font-mono font-bold disabled:opacity-40">{empReady ? 'USE EMP · E' : 'EMP EMPTY'}</button></div>}
+        <p className="hidden sm:block text-[10px] font-mono text-neutral-500 text-center">Drag to steer on touch · burst button fires spread · mouse / WASD and Space on desktop · collect R or S power-ups · E fires a stored EMP</p>
       </div>
     </div>
   );

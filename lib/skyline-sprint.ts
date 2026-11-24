@@ -1,8 +1,12 @@
 import { absorbHit } from './arcade-upgrades';
-export type Obstacle = { id: number; kind: 'crate' | 'drone' | 'cell' | 'shield'; x: number; hit: boolean; cleared?: boolean };
-export type SprintState = { y: number; velocity: number; time: number; distance: number; cells: number; cleanStreak: number; bonus: number; lives: number; shield: boolean; invincible: number; spawn: number; nextId: number; objects: Obstacle[] };
-export function newSprint(): SprintState { return { y:0, velocity:0, time:0, distance:0, cells:0, cleanStreak:0, bonus:0, lives:3, shield:false, invincible:0, spawn:1.2, nextId:0, objects:[] }; }
-export function jump(state: SprintState): SprintState { return state.y === 0 && state.velocity === 0 ? { ...state, velocity: 90 } : state; }
+export type Obstacle = { id: number; kind: 'crate' | 'drone' | 'cell' | 'shield' | 'boost'; x: number; hit: boolean; cleared?: boolean };
+export type SprintState = { y: number; velocity: number; time: number; distance: number; cells: number; cleanStreak: number; bonus: number; lives: number; shield: boolean; boost: boolean; invincible: number; spawn: number; nextId: number; objects: Obstacle[] };
+export function newSprint(): SprintState { return { y:0, velocity:0, time:0, distance:0, cells:0, cleanStreak:0, bonus:0, lives:3, shield:false, boost:false, invincible:0, spawn:1.2, nextId:0, objects:[] }; }
+export function jump(state: SprintState): SprintState {
+  if (state.y === 0 && state.velocity === 0) return { ...state, velocity: 90 };
+  if (state.y > 0 && state.boost) return { ...state, velocity: 90, boost: false };
+  return state;
+}
 export function sprintScore(state: SprintState): number { return Math.floor(state.distance) + state.cells * 50 + state.bonus; }
 export function stepSprint(input: SprintState, elapsed: number, sliding: boolean, random = Math.random): SprintState {
   const dt = Math.max(0, Math.min(elapsed, 0.05));
@@ -16,7 +20,8 @@ export function stepSprint(input: SprintState, elapsed: number, sliding: boolean
     const kind = random() < .53 ? 'crate' : 'drone';
     s.objects.push({ id:++s.nextId, kind, x:110, hit:false });
     const bonus = random();
-    if (bonus < .12) s.objects.push({ id:++s.nextId, kind:'shield', x:118, hit:false });
+    if (bonus < .10) s.objects.push({ id:++s.nextId, kind:'boost', x:118, hit:false });
+    else if (bonus < .20) s.objects.push({ id:++s.nextId, kind:'shield', x:118, hit:false });
     else if (bonus < .48) s.objects.push({ id:++s.nextId, kind:'cell', x:110, hit:false });
     s.spawn = Math.max(1.25, 2.0-s.time/140)+random()*.35;
   }
@@ -28,13 +33,13 @@ export function stepSprint(input: SprintState, elapsed: number, sliding: boolean
       if (!object.hit) { s.cleanStreak++; s.bonus += Math.min(50, s.cleanStreak * 5); }
     }
     if (object.hit || Math.abs(object.x-19) > (object.kind==='drone'?9:object.kind==='crate'?6.5:6)) continue;
-    if (object.kind==='cell' || object.kind==='shield') {
-      if (s.y <= 17 && s.y+height >= 13) { object.hit=true; if (object.kind==='shield') s.shield=true; else s.cells++; }
+    if (object.kind==='cell' || object.kind==='shield' || object.kind==='boost') {
+      if (s.y <= 17 && s.y+height >= 13) { object.hit=true; if (object.kind==='shield') s.shield=true; else if (object.kind==='boost') s.boost=true; else s.cells++; }
     } else {
       const bottom = object.kind==='crate'?0:7.5, top = object.kind==='crate'?8:15;
       if (s.y < top && s.y + height > bottom) { object.hit=true; s.cleanStreak=0; if (s.invincible===0) {const result=absorbHit(s.lives,s.shield);s.lives=result.lives;s.shield=result.shield;s.invincible=1.6;} }
     }
   }
-  s.objects=s.objects.filter(o=>o.x>-15 && !(o.hit && (o.kind==='cell' || o.kind==='shield')));
+  s.objects=s.objects.filter(o=>o.x>-15 && !(o.hit && (o.kind==='cell' || o.kind==='shield' || o.kind==='boost')));
   return s;
 }

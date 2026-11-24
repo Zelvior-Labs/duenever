@@ -2,14 +2,14 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause, Play, X } from 'lucide-react';
-import { treasureReward } from '@/lib/arcade-features';
+import { treasureReward, voyageMissions, type VoyageClaims } from '@/lib/arcade-features';
 import { attractTreasure } from '@/lib/arcade-upgrades';
 import { SoundButton, useGameSound } from './GameSound';
 
 type Item = { id: number; kind: 'rock' | 'coin' | 'magnet' | 'chest'; x: number; y: number };
 type Mode = 'menu' | 'playing' | 'paused' | 'over';
-type Sea = { x: number; target: number; items: Item[]; score: number; lives: number; time: number; spawn: number; coins: number; inv: number; magnet: number; id: number };
-const initial = (): Sea => ({ x: 50, target: 50, items: [], score: 0, lives: 3, time: 0, spawn: 0.4, coins: 0, inv: 0, magnet: 0, id: 0 });
+type Sea = { x: number; target: number; items: Item[]; score: number; lives: number; time: number; spawn: number; coins: number; inv: number; magnet: number; totalCoins: number; chests: number; missions: VoyageClaims; id: number };
+const initial = (): Sea => ({ x: 50, target: 50, items: [], score: 0, lives: 3, time: 0, spawn: 0.4, coins: 0, inv: 0, magnet: 0, totalCoins: 0, chests: 0, missions: { coins:false, chests:false, survival:false }, id: 0 });
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const BEST = 'duenever_treasure_drift_best';
 
@@ -62,7 +62,7 @@ export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
           if (Math.abs(item.x - w.x) < (item.kind === 'rock' ? 7 : 6) && Math.abs(item.y - 80) < 7) {
             item.y = 120;
             if (item.kind === 'coin' || item.kind === 'chest') {
-              play('collect'); const reward = treasureReward(item.kind, w.coins, w.lives);
+              play('collect'); if (item.kind === 'coin') w.totalCoins++; else w.chests++; const reward = treasureReward(item.kind, w.coins, w.lives);
               w.coins = reward.streak; w.score += reward.score; w.lives = reward.lives;
             }
             else if (item.kind === 'magnet') { play('collect'); w.magnet = 8; }
@@ -70,6 +70,8 @@ export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
           }
         }
         w.items = w.items.filter((item) => item.y < 110);
+        const mission = voyageMissions(w.missions, w.totalCoins, w.chests, w.time);
+        if (mission.reward) { w.score += mission.reward; w.missions = mission.claims; play('win'); }
         if (w.lives <= 0) {
           changeMode('over');
           setBest((old) => { const next = Math.max(old, w.score); try { localStorage.setItem(BEST, String(next)); } catch {} return next; });
@@ -97,9 +99,10 @@ export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
         <div><strong className="text-amber-300">TREASURE DRIFT</strong><span className="ml-3">{frame.score} pts</span><span className="ml-3 text-red-200">Lives {frame.lives}</span><span className="hidden sm:inline ml-3">Streak {frame.coins}</span>{frame.magnet > 0 && <span className="ml-3 text-cyan-200">Magnet {Math.ceil(frame.magnet)}s</span>}</div>
         <div className="flex gap-2"><SoundButton muted={muted} toggle={toggleSound}/><button onClick={toggle} aria-label={mode === 'paused' ? 'Resume' : 'Pause'} disabled={mode !== 'playing' && mode !== 'paused'} className="rounded bg-white/10 p-2 disabled:opacity-40">{mode === 'paused' ? <Play size={18} /> : <Pause size={18} />}</button><button onClick={onBack} aria-label="Quit game" className="rounded bg-white/10 p-2"><X size={18} /></button></div>
       </div>
+      {mode === 'playing' && <div className="pointer-events-none absolute bottom-4 left-3 rounded-lg border border-cyan-200/20 bg-[#002b3c]/85 p-2 font-mono text-[10px] text-cyan-100 sm:text-xs"><strong>VOYAGE GOALS</strong><p>Coins {Math.min(frame.totalCoins,12)}/12 {frame.missions.coins ? '✓' : '· +150'}</p><p>Chests {Math.min(frame.chests,2)}/2 {frame.missions.chests ? '✓' : '· +200'}</p><p>Survive {Math.min(Math.floor(frame.time),45)}/45s {frame.missions.survival ? '✓' : '· +150'}</p></div>}
       {mode !== 'playing' && <div className="absolute inset-0 top-14 flex items-center justify-center bg-[#001c2b]/85 p-5 text-center">
         <div className="max-w-lg space-y-4"><h2 className="font-mono text-3xl font-black text-amber-300 sm:text-5xl">{mode === 'over' ? 'VOYAGE OVER' : mode === 'paused' ? 'PAUSED' : 'TREASURE DRIFT'}</h2>
-          <p className="text-sm text-cyan-50">{mode === 'over' ? `You collected ${frame.score} points. Best: ${Math.max(best, frame.score)}.` : mode === 'paused' ? 'Take a breather, captain.' : 'Steer through the reef, collect coins, and build a treasure streak. Find treasure chests for 100 points and compass magnets to pull in coins. Every 10 coins in a streak restores a life, up to three. Avoid rocks!'}</p>
+          <p className="text-sm text-cyan-50">{mode === 'over' ? `You collected ${frame.score} points. Best: ${Math.max(best, frame.score)}.` : mode === 'paused' ? 'Take a breather, captain.' : 'Steer through the reef, collect coins, and build a treasure streak. Find treasure chests for 100 points and compass magnets to pull in coins. Every 10 coins in a streak restores a life. Complete voyage goals for bonus points. Avoid rocks!'}</p>
           <p className="text-xs text-cyan-200">Drag or tap to steer · Arrow keys / A D · P to pause</p>
           <button className="rounded-lg bg-amber-300 px-8 py-3 font-mono font-bold text-[#003444] hover:bg-amber-200" onClick={mode === 'paused' ? toggle : start}>{mode === 'paused' ? 'RESUME' : mode === 'over' ? 'SAIL AGAIN' : 'SET SAIL'}</button>
         </div></div>}

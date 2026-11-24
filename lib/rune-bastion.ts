@@ -33,3 +33,16 @@ export function repairBastion(gold: number, lives: number, phase: 'build' | 'com
 export function waveLabel(wave: number): string {
   return wave % 8 === 0 ? 'Dragon boss' : wave % 4 === 2 ? 'Swift enemies' : wave % 4 === 3 ? 'Armored enemies' : 'Standard wave';
 }
+
+export type Mastery = 'power' | 'speed';
+export const MASTERY_COST = 65;
+export function chooseMastery(gold: number, level: number, mastery: Mastery | null, playing: boolean, choice: Mastery) {
+  if (!playing || level < 2 || mastery !== null || gold < MASTERY_COST) return null;
+  return { gold: gold - MASTERY_COST, mastery: choice };
+}
+export function masteryStats(damage: number, rate: number, mastery: Mastery | null) {
+  return { damage: damage * (mastery === 'power' ? 1.35 : 1), rate: rate * (mastery === 'speed' ? .75 : 1) };
+}
+export function waveClearBonus(wave: number, leaks: number) {
+  return { base: 20 + wave * 4, flawless: leaks === 0 ? 15 + wave * 3 : 0 };
+}

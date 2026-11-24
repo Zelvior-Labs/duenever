@@ -1,6 +1,6 @@
 'use client';
 
-import { chainTargets, selectTarget, repairBastion, waveLabel, REPAIR_COST, type TargetMode } from '@/lib/rune-bastion';
+import { chainTargets, selectTarget, repairBastion, waveLabel, REPAIR_COST, chooseMastery, masteryStats, waveClearBonus, MASTERY_COST, type Mastery, type TargetMode } from '@/lib/rune-bastion';
 import { canUsePulse } from '@/lib/arcade-upgrades';
 import { SOUND_KEY } from '@/lib/game-audio';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -76,6 +76,7 @@ interface Tower {
   cool: number;
   invested: number;
   targetMode: TargetMode;
+  mastery: Mastery | null;
   aim: number; // aim angle for drawing
 }
 
@@ -163,6 +164,7 @@ interface World {
   phase: 'build' | 'combat';
   buildT: number;
   pulseCooldown: number;
+  waveLeaks: number;
   spawnQ: SpawnItem[];
   spawnT: number;
   score: number;
@@ -404,6 +406,7 @@ function createWorld(): World {
     phase: 'build',
     buildT: BUILD_TIME,
     pulseCooldown: 0,
+    waveLeaks: 0,
     spawnQ: [],
     spawnT: 0,
     score: 0,
@@ -481,6 +484,7 @@ function spawnEnemy(w: World, kind: 0 | 1 | 2 | 3 | 4, n: number) {
 function callWave(w: World, sfx: Sfx) {
   if (w.phase !== 'build') return;
   w.wave += 1;
+  w.waveLeaks = 0;
   const modifier = w.wave % 4 === 2 ? 'SWIFT WAVE' : w.wave % 4 === 3 ? 'ARMORED WAVE' : '';
   if (modifier) w.pops.push({ x: W / 2, y: H / 2 - 60, text: modifier, life: 2.2, color: '#FFD23C' });
   w.phase = 'combat';
@@ -515,12 +519,13 @@ function damageEnemy(w: World, e: Enemy, dmg: number, opts: Opts, sfx: Sfx) {
   }
 }
 
-function towerStats(kind: TowerKind, level: number) {
+function towerStats(kind: TowerKind, level: number, mastery: Mastery | null = null) {
   const b = TOWERS[kind];
   const dmgM = 1 + (level - 1) * 0.35;
   const rateM = 1 / (1 + (level - 1) * 0.12);
   const rngM = 1 + (level - 1) * 0.07;
-  return { dmg: b.dmg * dmgM, rate: b.rate * rateM, range: b.range * rngM };
+  const upgraded = masteryStats(b.dmg * dmgM, b.rate * rateM, mastery);
+  return { dmg: upgraded.damage, rate: upgraded.rate, range: b.range * rngM };
 }
 
 function updateWorld(w: World, dt: number, sfx: Sfx, opts: Opts) {
@@ -539,10 +544,11 @@ function updateWorld(w: World, dt: number, sfx: Sfx, opts: Opts) {
     }
     if (w.spawnQ.length === 0 && w.enemies.length === 0) {
       // Wave cleared — bonus gold
-      const bonus = 20 + w.wave * 4;
+      const award = waveClearBonus(w.wave, w.waveLeaks);
+      const bonus = award.base + award.flawless;
       w.gold += bonus;
       w.score += bonus;
-      w.pops.push({ x: W / 2, y: H / 2 - 60, text: `WAVE ${w.wave} CLEARED  +${bonus}`, life: 1.6, color: '#FFD23C' });
+      w.pops.push({ x: W / 2, y: H / 2 - 60, text: `WAVE ${w.wave} CLEARED  +${bonus}${award.flawless ? ' · FLAWLESS' : ''}`, life: 1.6, color: '#FFD23C' });
       w.phase = 'build';
       w.buildT = BUILD_TIME;
     }
@@ -585,6 +591,7 @@ function updateWorld(w: World, dt: number, sfx: Sfx, opts: Opts) {
       e.hp = 0;
       e.wp = PATH.length + 1; // mark for cull
       w.lives -= e.dmg;
+      w.waveLeaks++;
       w.shake = 14;
       sfx.leak();
       w.pops.push({ x: W - 60, y: 60, text: `-${e.dmg}`, life: 1.1, color: '#FF5A5A' });
@@ -601,7 +608,7 @@ function updateWorld(w: World, dt: number, sfx: Sfx, opts: Opts) {
     if (!tw) continue;
     tw.cool -= dt;
     const [px, py] = PADS[i];
-    const st = towerStats(tw.kind, tw.level);
+    const st = towerStats(tw.kind, tw.level, tw.mastery);
     if (tw.cool > 0) continue;
 
     const target = selectTarget(w.enemies, px, py, st.range, tw.targetMode);
@@ -1403,6 +1410,16 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
     sfx.upgrade();
   }, []);
 
+  const specialize = (choice: Mastery) => {
+    const w = worldRef.current, pad = uiRef.current.selPad;
+    if (!w || pad === null) return;
+    const tower = w.towers[pad]; if (!tower) return;
+    const result = chooseMastery(w.gold, tower.level, tower.mastery, statusRef.current === 'playing', choice);
+    if (!result) return;
+    w.gold = result.gold; tower.mastery = result.mastery; tower.invested += MASTERY_COST;
+    sfxRef.current?.upgrade(); setHud(old => ({...old}));
+  };
+
   const sellSelected = useCallback(() => {
     const w = worldRef.current;
     const i = uiRef.current.selPad;
@@ -1621,7 +1638,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
       return;
     }
     w.gold -= cost;
-    w.towers[pad] = { kind: choiceKind, pad, level: 1, cool: 0.25, invested: cost, targetMode: 'first', aim: -Math.PI / 2 };
+    w.towers[pad] = { kind: choiceKind, pad, level: 1, cool: 0.25, invested: cost, targetMode: 'first', mastery: null, aim: -Math.PI / 2 };
     sfxRef.current?.build();
     sparks(w, PADS[pad][0], PADS[pad][1], '#C09AFF', 8, optsRef.current);
     // Keep the choice selected so players can drop several towers quickly
@@ -1708,7 +1725,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
               <p className="font-mono text-xs text-neutral-300 max-w-md leading-relaxed">
                 Wolves rush. Shamans heal. Dragons burn.
                 <br />
-                Build towers, chain lightning with the Storm Obelisk, repair between waves, and unleash a frost pulse.
+                Build towers, specialize level 2 towers, earn flawless wave gold, repair the bastion and unleash a frost pulse.
               </p>
               <div className="hidden sm:flex flex-row items-center gap-3 font-mono text-[11px] text-neutral-400">
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">1 / 2 / 3 / 4 — pick tower</span>
@@ -1795,6 +1812,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
 
           {selTower && (
             <>
+              {selTower.mastery ? <span className="self-center px-2 text-amber-300 font-bold">{selTower.mastery === 'power' ? 'Power mastery +35% damage' : 'Speed mastery +33% fire rate'}</span> : selTower.level >= 2 && <><button onClick={()=>specialize('power')} disabled={!playing || hud.gold < MASTERY_COST} title="Permanent +35% tower damage" className="px-2 py-1.5 rounded-lg border-2 border-amber-500 text-amber-200 font-bold disabled:opacity-40">Power · {MASTERY_COST}</button><button onClick={()=>specialize('speed')} disabled={!playing || hud.gold < MASTERY_COST} title="Permanent 25% shorter attack interval" className="px-2 py-1.5 rounded-lg border-2 border-sky-500 text-sky-200 font-bold disabled:opacity-40">Speed · {MASTERY_COST}</button></>}
               <button onClick={cycleTarget} disabled={!playing} className="px-3 py-1.5 rounded-lg border-2 border-blue-500/60 text-blue-200 font-bold disabled:opacity-40" title="Choose which enemy this tower targets">Target: {selTower.targetMode}</button>
               <button
                 onClick={upgradeSelected}
