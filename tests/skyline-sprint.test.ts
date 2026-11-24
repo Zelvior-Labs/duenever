@@ -31,3 +31,8 @@ test('holding slide clears a moving drone', () => {
   for(let i=0;i<70;i++)s=stepSprint(s,.016,true,()=>.9);
   assert.equal(s.lives,3);
 });
+
+test('jump cannot be triggered twice before the first physics step', () => {
+  const s = jump(newSprint());
+  assert.equal(jump(s), s);
+});

@@ -1,5 +1,6 @@
 'use client';
 
+import { SOUND_KEY } from '@/lib/game-audio';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Pause, Play, Rocket as RocketIcon, Trophy, Volume2, VolumeX, X } from 'lucide-react';
 import { getStoredSettings } from '@/lib/storage';
@@ -11,7 +12,7 @@ import { getStoredSettings } from '@/lib/storage';
 const W = 900; // logical playfield width
 const H = 560; // logical playfield height
 const BEST_KEY = 'duenever_rocket_best_v1';
-const MUTE_KEY = 'duenever_rocket_muted_v1';
+const MUTE_KEY = SOUND_KEY;
 
 const PLAYER_SPEED = 350;
 const PLAYER_R = 16;
@@ -113,10 +114,14 @@ interface RenderCache {
 class Sfx {
   private ctx: AudioContext | null = null;
   private noiseBuf: AudioBuffer | null = null;
+  private sources = new Set<AudioScheduledSourceNode>();
   muted = false;
+  stop() { for (const source of this.sources) { try { source.stop(); } catch {} } this.sources.clear(); }
+  private track(source: AudioScheduledSourceNode) { this.sources.add(source); source.onended = () => { this.sources.delete(source); source.disconnect(); }; }
 
   ensure() {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || this.muted) return;
+    try {
     if (!this.ctx) {
       const AC =
         window.AudioContext ||
@@ -128,12 +133,13 @@ class Sfx {
       for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
       this.noiseBuf = buf;
     }
-    if (this.ctx.state === 'suspended') void this.ctx.resume();
+    if (this.ctx.state === 'suspended') void this.ctx.resume().catch(() => {});
+    } catch { this.close(); } // Audio support must not interrupt the game.
   }
 
-  private tone(type: OscillatorType, f0: number, f1: number, dur: number, vol: number) {
+  private tone(type: OscillatorType, f0: number, f1: number, dur: number, vol: number, delay = 0) {
     if (!this.ctx || this.muted) return;
-    const t = this.ctx.currentTime;
+    const t = this.ctx.currentTime + delay;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
     osc.type = type;
@@ -143,6 +149,7 @@ class Sfx {
     gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(gain);
     gain.connect(this.ctx.destination);
+    this.track(osc);
     osc.start(t);
     osc.stop(t + dur + 0.02);
   }
@@ -162,6 +169,7 @@ class Sfx {
     src.connect(filter);
     filter.connect(gain);
     gain.connect(this.ctx.destination);
+    this.track(src);
     src.start(t);
     src.stop(t + dur);
   }
@@ -192,13 +200,14 @@ class Sfx {
   }
   pickup() {
     this.tone('sine', 660, 660, 0.07, 0.07);
-    window.setTimeout(() => this.tone('sine', 990, 990, 0.12, 0.07), 70);
+    this.tone('sine', 990, 990, 0.12, 0.07, .07);
   }
   wave() {
     this.tone('square', 440, 440, 0.09, 0.04);
-    window.setTimeout(() => this.tone('square', 660, 660, 0.14, 0.04), 90);
+    this.tone('square', 660, 660, 0.14, 0.04, .09);
   }
   close() {
+    this.stop();
     void this.ctx?.close().catch(() => undefined);
     this.ctx = null;
   }
@@ -1293,8 +1302,8 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
   }, []);
 
   const togglePause = useCallback(() => {
-    if (statusRef.current === 'playing') applyStatus('paused');
-    else if (statusRef.current === 'paused') applyStatus('playing');
+    if (statusRef.current === 'playing') { sfxRef.current?.stop(); applyStatus('paused'); }
+    else if (statusRef.current === 'paused') { sfxRef.current?.ensure(); applyStatus('playing'); }
   }, [applyStatus]);
 
   const startGame = useCallback(() => {
@@ -1329,16 +1338,10 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
   };
 
   const toggleMute = () => {
-    setMuted((m) => {
-      const nm = !m;
-      if (sfxRef.current) sfxRef.current.muted = nm;
-      try {
-        localStorage.setItem(MUTE_KEY, nm ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
-      return nm;
-    });
+    const next = !muted;
+    if (sfxRef.current) { sfxRef.current.muted = next; if (next) sfxRef.current.stop(); else sfxRef.current.ensure(); }
+    setMuted(next);
+    try { localStorage.setItem(MUTE_KEY, next ? '1' : '0'); } catch {}
   };
 
   // Main engine effect (mount once)
@@ -1348,7 +1351,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
       const b = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0;
       bestRef.current = b;
       setBest(b);
-      storedMute = localStorage.getItem(MUTE_KEY) === '1';
+      storedMute = (localStorage.getItem(MUTE_KEY) ?? localStorage.getItem('duenever_rocket_muted_v1')) === '1';
       setMuted(storedMute);
       const s = getStoredSettings();
       optsRef.current = { reducedMotion: s.reducedMotion, lowPerf: s.lowPerformance };
@@ -1435,8 +1438,15 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
       drawWorld(ctx, w, assetsRef.current, rc, optsRef.current, now / 1000, statusRef.current);
     };
     raf = requestAnimationFrame(tick);
+    const syncMute = (event: StorageEvent) => {
+      if (event.key !== MUTE_KEY || !sfxRef.current) return;
+      const next = event.newValue === '1'; sfxRef.current.muted = next; setMuted(next);
+      if (next) sfxRef.current.stop();
+    };
+    window.addEventListener('storage', syncMute);
 
     return () => {
+      window.removeEventListener('storage', syncMute);
       cancelled = true;
       cancelAnimationFrame(raf);
       sfxRef.current?.close();

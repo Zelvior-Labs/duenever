@@ -43,3 +43,15 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Event-driven feedback; motion is suppressed for system reduced-motion users. */
+@keyframes game-tile-arrive { from { transform: translate(var(--move-x, 0), var(--move-y, 0)) scale(.9); opacity:.55 } to { transform: translate(0, 0) scale(1); opacity:1 } }
+@keyframes game-runner-stride { 0%,100% { transform: rotate(-2deg) } 50% { transform: rotate(2deg) translateY(-2px) } }
+@keyframes game-coin-glint { 0%,100% { filter: brightness(1) } 50% { filter: brightness(1.4) } }
+.game-tile-arrive { animation: game-tile-arrive 140ms ease-out; }
+.game-runner-stride { animation: game-runner-stride .26s ease-in-out infinite; transform-origin: 50% 90%; }
+.game-coin-glint { animation: game-coin-glint 1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .game-tile-arrive, .game-runner-stride, .game-coin-glint { animation: none !important; } }
+@keyframes game-piece-arrive { from { transform: scale(.7); opacity:.5 } to { transform: scale(1); opacity:1 } }
+.game-piece-arrive { animation: game-piece-arrive 180ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .game-piece-arrive { animation: none !important; } }

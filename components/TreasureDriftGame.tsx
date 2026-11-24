@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause, Play, X } from 'lucide-react';
+import { SoundButton, useGameSound } from './GameSound';
 
 type Item = { id: number; kind: 'rock' | 'coin'; x: number; y: number };
 type Mode = 'menu' | 'playing' | 'paused' | 'over';
@@ -11,6 +12,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 const BEST = 'duenever_treasure_drift_best';
 
 export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
+  const { muted, toggle: toggleSound, play, stop, reducedMotion } = useGameSound();
   const [mode, setMode] = useState<Mode>('menu');
   const [frame, setFrame] = useState<Sea>(initial);
   const [best, setBest] = useState(0);
@@ -19,8 +21,8 @@ export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
   const keys = useRef(new Set<string>());
   const field = useRef<HTMLDivElement>(null);
   const changeMode = useCallback((v: Mode) => { modeRef.current = v; setMode(v); }, []);
-  const start = useCallback(() => { world.current = initial(); setFrame({ ...world.current }); keys.current.clear(); changeMode('playing'); }, [changeMode]);
-  const toggle = useCallback(() => { if (modeRef.current === 'playing') changeMode('paused'); else if (modeRef.current === 'paused') changeMode('playing'); }, [changeMode]);
+  const start = useCallback(() => { play('start'); world.current = initial(); setFrame({ ...world.current }); keys.current.clear(); changeMode('playing'); }, [changeMode, play]);
+  const toggle = useCallback(() => { if (modeRef.current === 'playing') { stop(); changeMode('paused'); } else if (modeRef.current === 'paused') changeMode('playing'); }, [changeMode, stop]);
 
   useEffect(() => { try { setBest(Number(localStorage.getItem(BEST)) || 0); } catch {} }, []);
   useEffect(() => {
@@ -29,10 +31,11 @@ export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
       if ((e.code === 'KeyP' || e.code === 'Escape') && !e.repeat) { e.preventDefault(); toggle(); }
     };
     const up = (e: KeyboardEvent) => keys.current.delete(e.code);
-    const visibility = () => { if (document.hidden && modeRef.current === 'playing') changeMode('paused'); };
-    window.addEventListener('keydown', down); window.addEventListener('keyup', up); document.addEventListener('visibilitychange', visibility);
-    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); document.removeEventListener('visibilitychange', visibility); };
-  }, [changeMode, toggle]);
+    const pauseOnBlur = () => { if (modeRef.current === 'playing') { keys.current.clear(); stop(); changeMode('paused'); } };
+    const visibility = () => { if (document.hidden) pauseOnBlur(); };
+    window.addEventListener('keydown', down); window.addEventListener('keyup', up); window.addEventListener('blur', pauseOnBlur); document.addEventListener('visibilitychange', visibility);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', pauseOnBlur); document.removeEventListener('visibilitychange', visibility); };
+  }, [changeMode, stop, toggle]);
 
   useEffect(() => {
     let id = 0, previous = 0;
@@ -54,8 +57,8 @@ export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
           item.y += speed * dt;
           if (Math.abs(item.x - w.x) < (item.kind === 'rock' ? 7 : 6) && Math.abs(item.y - 80) < 7) {
             item.y = 120;
-            if (item.kind === 'coin') { w.coins++; w.score += 10 + Math.min(40, (w.coins - 1) * 2); }
-            else if (!w.inv) { w.lives--; w.coins = 0; w.inv = 2; }
+            if (item.kind === 'coin') { play('collect'); w.coins++; w.score += 10 + Math.min(40, (w.coins - 1) * 2); }
+            else if (!w.inv) { play('hit'); w.lives--; w.coins = 0; w.inv = 2; }
           }
         }
         w.items = w.items.filter((item) => item.y < 110);
@@ -68,7 +71,7 @@ export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
       id = requestAnimationFrame(loop);
     };
     id = requestAnimationFrame(loop); return () => cancelAnimationFrame(id);
-  }, [changeMode]);
+  }, [changeMode, play]);
 
   const steer = (event: React.PointerEvent<HTMLDivElement>) => {
     if (modeRef.current !== 'playing' || !field.current) return;
@@ -80,11 +83,11 @@ export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
     <div ref={field} role="dialog" aria-modal="true" aria-label="Treasure Drift game" className="fixed inset-0 z-[70] h-[100dvh] overflow-hidden bg-[#087b8c] text-white select-none" style={{ touchAction: 'none' }} onPointerDown={(e) => { if (e.target === e.currentTarget) { e.currentTarget.setPointerCapture(e.pointerId); steer(e); } }} onPointerMove={(e) => { if (e.buttons && e.currentTarget.hasPointerCapture(e.pointerId)) steer(e); }}>
       <div className="pointer-events-none absolute inset-0 opacity-40" style={{ backgroundImage: 'repeating-linear-gradient(170deg, transparent 0 55px, rgba(150,255,240,.2) 57px 60px, transparent 63px 100px)', transform: `translateY(${(frame.time * 35) % 100}px)` }} />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#003e5e]/60 via-transparent to-[#00364b]/40" />
-      {frame.items.map(item => <img key={item.id} alt="" draggable={false} src={`/games/treasure-drift/${item.kind}.png`} className="pointer-events-none absolute object-contain" style={{ left: `${item.x}%`, top: `${item.y}%`, transform: 'translate(-50%, -50%)', width: item.kind === 'rock' ? 'clamp(40px, 9vw, 90px)' : 'clamp(28px, 6vw, 58px)', height: item.kind === 'rock' ? 'clamp(40px, 9vw, 90px)' : 'clamp(28px, 6vw, 58px)' }} />)}
-      <img alt="" draggable={false} src="/games/treasure-drift/ship.png" className="pointer-events-none absolute object-contain drop-shadow-xl" style={{ left: `${frame.x}%`, top: '80%', transform: 'translate(-50%, -50%)', width: 'clamp(44px, 8vw, 80px)', height: 'clamp(70px, 15vh, 120px)', opacity: frame.inv > 0 && Math.floor(frame.inv * 8) % 2 ? 0.45 : 1 }} />
+      {frame.items.map(item => <img key={item.id} alt="" draggable={false} src={`/games/treasure-drift/${item.kind}.png`} className={`pointer-events-none absolute object-contain ${item.kind==='coin' && mode==='playing' && !reducedMotion?'game-coin-glint':''}`} style={{ left: `${item.x}%`, top: `${item.y}%`, transform: 'translate(-50%, -50%)', width: item.kind === 'rock' ? 'clamp(40px, 9vw, 90px)' : 'clamp(28px, 6vw, 58px)', height: item.kind === 'rock' ? 'clamp(40px, 9vw, 90px)' : 'clamp(28px, 6vw, 58px)' }} />)}
+      <img alt="" draggable={false} src="/games/treasure-drift/ship.png" className="pointer-events-none absolute object-contain drop-shadow-xl" style={{ left: `${frame.x}%`, top: '80%', transform: `translate(-50%, -50%) rotate(${reducedMotion ? 0 : clamp((frame.target-frame.x)*.5,-12,12)}deg)`, width: 'clamp(44px, 8vw, 80px)', height: 'clamp(70px, 15vh, 120px)', opacity: frame.inv > 0 && Math.floor(frame.inv * 8) % 2 ? 0.45 : 1 }} />
       <div className="absolute z-10 inset-x-0 top-0 flex items-center justify-between gap-2 bg-[#002b3c]/85 p-3 font-mono text-xs sm:text-sm">
         <div><strong className="text-amber-300">TREASURE DRIFT</strong><span className="ml-3">{frame.score} pts</span><span className="ml-3 text-red-200">Lives {frame.lives}</span><span className="hidden sm:inline ml-3">Streak {frame.coins}</span></div>
-        <div className="flex gap-2"><button onClick={toggle} aria-label={mode === 'paused' ? 'Resume' : 'Pause'} disabled={mode !== 'playing' && mode !== 'paused'} className="rounded bg-white/10 p-2 disabled:opacity-40">{mode === 'paused' ? <Play size={18} /> : <Pause size={18} />}</button><button onClick={onBack} aria-label="Quit game" className="rounded bg-white/10 p-2"><X size={18} /></button></div>
+        <div className="flex gap-2"><SoundButton muted={muted} toggle={toggleSound}/><button onClick={toggle} aria-label={mode === 'paused' ? 'Resume' : 'Pause'} disabled={mode !== 'playing' && mode !== 'paused'} className="rounded bg-white/10 p-2 disabled:opacity-40">{mode === 'paused' ? <Play size={18} /> : <Pause size={18} />}</button><button onClick={onBack} aria-label="Quit game" className="rounded bg-white/10 p-2"><X size={18} /></button></div>
       </div>
       {mode !== 'playing' && <div className="absolute inset-0 top-14 flex items-center justify-center bg-[#001c2b]/85 p-5 text-center">
         <div className="max-w-lg space-y-4"><h2 className="font-mono text-3xl font-black text-amber-300 sm:text-5xl">{mode === 'over' ? 'VOYAGE OVER' : mode === 'paused' ? 'PAUSED' : 'TREASURE DRIFT'}</h2>

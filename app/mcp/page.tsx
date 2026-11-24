@@ -1,7 +1,7 @@
-import type { Metadata } from 'next';
+import { pageMetadata, PUBLIC_PAGES } from '@/lib/seo';
 import Link from 'next/link';
 
-export const metadata: Metadata = { title: 'Play with an LLM | DueNever', description: 'Connect an assistant to a private chess or Ludo room.', alternates: { canonical: '/mcp' } };
+export const metadata = pageMetadata({ ...PUBLIC_PAGES['/mcp'], path: '/mcp' });
 
 const install = `git clone https://github.com/Zelvior-Labs/duenever.git
 cd duenever

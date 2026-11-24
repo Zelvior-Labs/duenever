@@ -1,7 +1,7 @@
 export type Obstacle = { id: number; kind: 'crate' | 'drone' | 'cell'; x: number; hit: boolean };
 export type SprintState = { y: number; velocity: number; time: number; distance: number; cells: number; lives: number; invincible: number; spawn: number; nextId: number; objects: Obstacle[] };
 export function newSprint(): SprintState { return { y:0, velocity:0, time:0, distance:0, cells:0, lives:3, invincible:0, spawn:1.2, nextId:0, objects:[] }; }
-export function jump(state: SprintState): SprintState { return state.y === 0 ? { ...state, velocity: 90 } : state; }
+export function jump(state: SprintState): SprintState { return state.y === 0 && state.velocity === 0 ? { ...state, velocity: 90 } : state; }
 export function sprintScore(state: SprintState): number { return Math.floor(state.distance) + state.cells * 50; }
 export function stepSprint(input: SprintState, elapsed: number, sliding: boolean, random = Math.random): SprintState {
   const dt = Math.max(0, Math.min(elapsed, 0.05));

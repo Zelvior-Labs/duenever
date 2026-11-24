@@ -1,11 +1,7 @@
-import type { Metadata } from 'next';
+import { pageMetadata, PUBLIC_PAGES } from '@/lib/seo';
 import Link from 'next/link';
 
-export const metadata: Metadata = {
-  title: 'Privacy at DueNever',
-  description: 'How DueNever uses browser storage and private multiplayer rooms.',
-  alternates: { canonical: '/privacy' },
-};
+export const metadata = pageMetadata({ ...PUBLIC_PAGES['/privacy'], path: '/privacy' });
 
 export default function PrivacyPage() {
   return <main className="min-h-screen bg-neutral-950 px-5 py-10 text-neutral-100"><div className="mx-auto max-w-3xl space-y-7">

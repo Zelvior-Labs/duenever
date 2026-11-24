@@ -5,10 +5,10 @@ import robots from '../app/robots';
 import sitemap from '../app/sitemap';
 import { SITE_URL } from '../lib/site-url';
 
-test('crawler rules link to a sitemap containing only public pages', () => {
+test('crawler rules link to a sitemap containing only public pages', async () => {
   assert.equal(robots().sitemap, `${SITE_URL}/sitemap.xml`);
-  const urls = sitemap().map(page => page.url);
-  assert.deepEqual(urls, [`${SITE_URL}/`, `${SITE_URL}/mcp`, `${SITE_URL}/about`, `${SITE_URL}/privacy`]);
+  const urls = (await sitemap()).map(page => page.url);
+  for (const path of ['/', '/mcp', '/about', '/privacy', '/games/chess']) assert.ok(urls.includes(`${SITE_URL}${path}`));
   assert.ok(!urls.some(url => url.includes('control-center') || url.includes('/api/')));
 });
 
@@ -37,4 +37,24 @@ test('served pages expose metadata, crawler files and security headers', { skip:
   const sitemapResponse = await fetch(`${base}/sitemap.xml`);
   assert.equal(sitemapResponse.status, 200);
   assert.match(await sitemapResponse.text(), /<loc>https:\/\/duenever\.vercel\.app\/privacy<\/loc>/);
+});
+
+
+test('game pages and social cards are generated from catalog data', { skip: !process.env.SITE_TEST_URL }, async () => {
+  const base = process.env.SITE_TEST_URL!;
+  const page = await fetch(`${base}/games/chess`);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /How do I play Chess\?/);
+  assert.match(html, /FAQPage/);
+  assert.match(html, /VideoGame/);
+  assert.match(html, /https:\/\/duenever\.vercel\.app\/games\/chess/);
+  const card = await fetch(`${base}/og?path=%2Fgames%2Fchess`);
+  assert.equal(card.status, 200);
+  assert.equal(card.headers.get('content-type'), 'image/jpeg');
+  const bytes = new Uint8Array(await card.arrayBuffer());
+  assert.equal(bytes[0], 0xff); assert.equal(bytes[1], 0xd8);
+  assert.ok(bytes.length < 500_000, 'social card should stay compact');
+  assert.equal((await fetch(`${base}/og?path=toString`)).status, 404);
+  assert.equal((await fetch(`${base}/games/not-a-game`)).status, 404);
 });
