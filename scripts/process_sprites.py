@@ -21,6 +21,8 @@ JOBS = {
         ('enemy-goblin', 104, None),
         ('enemy-brute', 140, None),
         ('enemy-dragon', 176, None),
+        ('enemy-wolf', 110, None),
+        ('enemy-shaman', 130, None),
         ('banner', 1600, 84),
     ],
 }

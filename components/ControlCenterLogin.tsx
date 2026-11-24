@@ -6,6 +6,7 @@ import { Lock } from 'lucide-react';
 
 export function ControlCenterLogin() {
   const router = useRouter();
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -18,7 +19,7 @@ export function ControlCenterLogin() {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email, password }),
       });
       if (res.ok) {
         router.refresh();
@@ -45,6 +46,19 @@ export function ControlCenterLogin() {
         </div>
         <p className="text-xs font-mono text-neutral-400 mb-5">Restricted area. Admin access only.</p>
 
+        <label className="block text-[11px] font-mono uppercase tracking-widest text-neutral-400 mb-1.5" htmlFor="cc-email">
+          Admin email
+        </label>
+        <input
+          id="cc-email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="username"
+          className="w-full bg-neutral-950 border border-neutral-700 rounded-lg px-3 py-2.5 text-sm font-mono text-neutral-100 focus:outline-none focus:border-[color:var(--accent)] mb-4"
+          placeholder="admin@example.com"
+        />
+
         <label className="block text-[11px] font-mono uppercase tracking-widest text-neutral-400 mb-1.5" htmlFor="cc-password">
           Admin password
         </label>
@@ -63,7 +77,7 @@ export function ControlCenterLogin() {
 
         <button
           type="submit"
-          disabled={busy || password.length === 0}
+          disabled={busy || password.length === 0 || email.length === 0}
           className="mt-5 w-full px-4 py-2.5 bg-[var(--accent)] hover:bg-lime-300 text-black font-mono font-bold text-sm rounded-lg border-2 border-black shadow-[3px_3px_0px_0px_rgba(255,255,255,0.25)] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-none"
         >
           {busy ? 'Verifying…' : 'Unlock'}
