@@ -7,6 +7,8 @@ import { GameArt } from './GameArt';
 import { RocketRampageGame } from './RocketRampageGame';
 import { RuneBastionGame } from './RuneBastionGame';
 import { TreasureDriftGame } from './TreasureDriftGame';
+import { CircuitMergeGame } from './CircuitMergeGame';
+import { SkylineSprintGame } from './SkylineSprintGame';
 import { BoardGameRoom } from './BoardGameRoom';
 
 /** Maps a playable game id to its live component. */
@@ -14,6 +16,8 @@ function PlayableGame({ id, onBack }: { id: string; onBack: () => void }) {
   if (id === 'rocket-rampage') return <RocketRampageGame onBack={onBack} />;
   if (id === 'rune-bastion') return <RuneBastionGame onBack={onBack} />;
   if (id === 'treasure-drift') return <TreasureDriftGame onBack={onBack} />;
+  if (id === 'circuit-merge') return <CircuitMergeGame onBack={onBack} />;
+  if (id === 'skyline-sprint') return <SkylineSprintGame onBack={onBack} />;
   if (id === 'chess' || id === 'ludo') return <BoardGameRoom game={id} onBack={onBack} />;
   return null;
 }

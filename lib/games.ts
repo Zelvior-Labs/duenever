@@ -90,6 +90,18 @@ export const GAMES: Game[] = [
     art: { cardImage: '/games/treasure-drift/banner.jpg', bannerImage: '/games/treasure-drift/banner.jpg' },
   },
   {
+    id: 'skyline-sprint', title: 'Skyline Sprint', slug: 'skyline-sprint', category: 'Reflex', playerCounts: [1],
+    tagline: 'Jump, slide and race across the neon skyline.',
+    description: 'Keep your courier moving through an endless rooftop run. Jump over cargo, slide under drones and collect energy cells as the pace rises. Three hits, one high score.',
+    tags: ['Endless Runner', 'Arcade', 'High Score', 'Single Player'], controls: ['Space / W / ↑ or tap Jump to leap', 'Hold S / ↓ or Slide to duck · P to pause'], playable: true, accentColor: '#6EE7F2', art: { cardImage: '/games/skyline-sprint/banner.jpg', bannerImage: '/games/skyline-sprint/banner.jpg' },
+  },
+  {
+    id: 'circuit-merge', title: 'Circuit Merge', slug: 'circuit-merge', category: 'Puzzle', playerCounts: [1],
+    tagline: 'Merge matching tiles and power up your grid.',
+    description: 'Slide matching tiles together to reach 2048, then keep going. Think ahead, use one-step undo, and chase a new personal best.',
+    tags: ['Puzzle', 'Strategy', 'High Score', 'Single Player'], controls: ['Swipe, use the arrow keys / WASD, or tap the direction buttons', 'Combine equal tiles · undo your last move'], playable: true, accentColor: '#CCFF00', art: { cardImage: '/games/circuit-merge/banner.jpg', bannerImage: '/games/circuit-merge/banner.jpg' },
+  },
+  {
     id: 'ludo', title: 'Ludo', slug: 'ludo', category: 'Strategy', playerCounts: [1, 2, 4],
     tagline: 'Race your pieces home with friends or bots.',
     description: 'Play the classic race game with private friend rooms or bots. Roll six to enter, capture opponents and bring all four tokens home.',
