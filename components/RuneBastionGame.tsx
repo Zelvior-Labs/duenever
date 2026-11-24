@@ -1574,14 +1574,14 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-[70] overflow-y-auto bg-black/95 p-2 sm:p-4 font-sans"
+      className="fixed inset-0 z-[70] h-[100dvh] overflow-hidden bg-black font-sans"
       role="dialog"
       aria-modal="true"
       aria-label="Rune Bastion game"
     >
-      <div className="w-full max-w-5xl mx-auto min-h-full flex flex-col justify-center gap-2">
+      <div className="w-full h-full flex flex-col gap-0">
         {/* Top bar */}
-        <div className="flex items-center justify-between font-mono text-xs">
+        <div className="flex shrink-0 items-center justify-between font-mono text-xs px-2 py-1 bg-neutral-950">
           <div className="flex items-center gap-2 text-neutral-200 font-bold tracking-wide">
             <Shield className="w-4 h-4 text-[color:var(--accent)]" />
             RUNE BASTION
@@ -1626,12 +1626,12 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
 
         {/* Playfield */}
         <div
-          className="relative w-full mx-auto rounded-xl border-2 border-neutral-700 overflow-hidden bg-black shadow-[0_0_70px_rgba(124,77,255,0.12)]"
+          className="relative w-full flex-1 min-h-0 overflow-hidden bg-black"
           onPointerMove={handleMove}
           onPointerDown={handleClick}
-          style={{ touchAction: playing ? 'none' : 'pan-y', maxWidth: 'min(100%, max(320px, calc((100dvh - 210px) * 1.607)))' }}
+          style={{ touchAction: playing ? 'none' : 'pan-y' }}
         >
-          <canvas ref={canvasRef} className="block w-full h-auto select-none" aria-label="Rune Bastion playfield" />
+          <canvas ref={canvasRef} className="block w-full h-full select-none" aria-label="Rune Bastion playfield" />
 
           {status === 'loading' && (
             <div className="absolute inset-0 flex items-center justify-center bg-[#050508]">
@@ -1709,7 +1709,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
         </div>
 
         {/* Build / command bar */}
-        <div className="flex flex-wrap items-stretch justify-center gap-2 font-mono text-xs">
+        <div className="flex shrink-0 flex-wrap items-stretch justify-center gap-1 bg-neutral-950 p-1 font-mono text-xs">
           {([0, 1, 2] as TowerKind[]).map((k) => {
             const t = TOWERS[k];
             const selected = choice === k;
@@ -1760,7 +1760,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
           </button>
         </div>
 
-        <p className="text-[10px] font-mono text-neutral-500 text-center">
+        <p className="hidden sm:block text-[10px] font-mono text-neutral-500 text-center">
           Pick a tower (1/2/3) → click a rune pad to build · click a tower to upgrade/sell (U/S) · Space calls the next wave early for bonus gold · P pause
         </p>
       </div>

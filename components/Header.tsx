@@ -135,13 +135,6 @@ export function Header({
                   Optimized for budget laptops & low-end browsers.
                 </div>
 
-                <a
-                  href="/control-center"
-                  className="flex items-center justify-between pt-2 border-t border-neutral-800 text-neutral-300 hover:text-[color:var(--accent)] transition-colors cursor-pointer font-bold"
-                >
-                  <span>Control Center</span>
-                  <span className="text-[9px] font-normal text-neutral-500">admin</span>
-                </a>
               </div>
             )}
           </div>

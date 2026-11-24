@@ -18,6 +18,7 @@ export interface Game {
   controls: string[];
   featured?: boolean;
   playable?: boolean;
+  playerCounts?: number[];
   accentColor: string;
   /** Real rendered art assets — when present, components render these images */
   art?: GameArtAssets;
@@ -30,6 +31,7 @@ export const CATEGORIES: GameCategory[] = ['Quick', 'Puzzle', 'Reflex', 'Chill',
 
 export const GAMES: Game[] = [
   {
+    playerCounts: [1],
     id: 'rocket-rampage',
     title: 'Rocket Rampage',
     slug: 'rocket-rampage',
@@ -52,6 +54,7 @@ export const GAMES: Game[] = [
     },
   },
   {
+    playerCounts: [1],
     id: 'rune-bastion',
     title: 'Rune Bastion',
     slug: 'rune-bastion',
@@ -71,5 +74,31 @@ export const GAMES: Game[] = [
       cardImage: '/games/rune-bastion/banner.jpg',
       bannerImage: '/games/rune-bastion/banner.jpg',
     },
+  },
+  {
+    playerCounts: [1],
+    id: 'treasure-drift',
+    title: 'Treasure Drift',
+    slug: 'treasure-drift',
+    tagline: 'Sail the reef and collect a fortune.',
+    description: 'Steer a tiny ship through treacherous reefs, collect gold, and build a treasure streak. The longer you survive, the faster the sea becomes. Three lives, one daring voyage.',
+    category: 'Reflex',
+    tags: ['Arcade', 'Adventure', 'High Score', 'Single Player'],
+    controls: ['Drag or tap to steer · Arrow keys / A D', 'Collect gold and avoid rocks', 'P or Escape to pause'],
+    playable: true,
+    accentColor: '#28C6C1',
+    art: { cardImage: '/games/treasure-drift/banner.jpg', bannerImage: '/games/treasure-drift/banner.jpg' },
+  },
+  {
+    id: 'ludo', title: 'Ludo', slug: 'ludo', category: 'Strategy', playerCounts: [1, 2, 4],
+    tagline: 'Race your pieces home with friends or bots.',
+    description: 'Play the classic race game with private friend rooms or bots. Roll six to enter, capture opponents and bring all four tokens home.',
+    tags: ['Board Game', 'Multiplayer', 'Bots'], controls: ['Roll the dice, then tap a token', 'Exact roll to finish · six earns another turn'], playable: true, accentColor: '#F6C856', art: { cardImage: '/games/ludo/banner.jpg', bannerImage: '/games/ludo/banner.jpg' },
+  },
+  {
+    id: 'chess', title: 'Chess', slug: 'chess', category: 'Strategy', playerCounts: [1, 2],
+    tagline: 'Challenge a friend or a computer opponent.',
+    description: 'Play chess in a private room or against a bot. Legal moves, checkmate, castling, en passant and promotion.',
+    tags: ['Board Game', 'Multiplayer', 'Bots'], controls: ['Select a piece and destination', 'Choose a piece when promoting'], playable: true, accentColor: '#D0C0A0', art: { cardImage: '/games/chess/banner.jpg', bannerImage: '/games/chess/banner.jpg' },
   },
 ];
