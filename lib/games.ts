@@ -60,11 +60,11 @@ export const GAMES: Game[] = [
     slug: 'rune-bastion',
     tagline: 'Hold the rune bastion against goblin hordes, golems and dragons.',
     description:
-      'Defend the causeway with Arcane Spires, Ranger Posts, Frost Keeps and chain-lightning Storm Obelisks. Set tower targets, choose power or speed mastery, earn flawless bonuses, repair between waves and unleash a frost pulse. Wolves rush, shamans heal their allies, and dragons attack every eighth wave. Swift and armored waves change the challenge; upgrade towers and call waves early for bonus gold.',
+      'Defend the causeway with Arcane Spires, Ranger Posts, Frost Keeps, chain-lightning Storm Obelisks and splash-damage Ember Cannons. Set tower targets, choose power or speed mastery, earn flawless bonuses, repair between waves and unleash a frost pulse. Wolves rush, shamans heal their allies, and dragons attack every eighth wave. Swift and armored waves change the challenge; upgrade towers and call waves early for bonus gold.',
     category: 'Strategy' as GameCategory,
     tags: ['Tower Defense', 'Fantasy', 'Waves', 'Single Player'],
     controls: [
-      'Pick a tower, then tap or click a rune pad to build · 1 / 2 / 3 / 4 also select',
+      'Pick a tower, then tap or click a rune pad to build · 1 / 2 / 3 / 4 / 5 also select',
       'Tap or click a tower to upgrade or sell · U / S on keyboard',
       'Space / N calls the next wave early for bonus gold · P pause',
     ],
@@ -84,7 +84,7 @@ export const GAMES: Game[] = [
     description: 'Steer a tiny ship through treacherous reefs, collect gold and treasure chests, build a life-restoring streak and complete voyage goals for bonus points. The longer you survive, the faster the sea becomes. Three lives, one daring voyage.',
     category: 'Reflex',
     tags: ['Arcade', 'Adventure', 'High Score', 'Single Player'],
-    controls: ['Drag or tap to steer · Arrow keys / A D', 'Collect gold and avoid rocks', 'P or Escape to pause'],
+    controls: ['Drag or tap to steer in any direction · Arrow keys / WASD', 'Collect gold and avoid rocks', 'P or Escape to pause'],
     playable: true,
     accentColor: '#28C6C1',
     art: { cardImage: '/games/treasure-drift/banner.jpg', bannerImage: '/games/treasure-drift/banner.jpg' },
