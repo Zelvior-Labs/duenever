@@ -1,5 +1,6 @@
 'use client';
 
+import { rocketCombo } from '@/lib/arcade-features';
 import { absorbHit, chooseRocketDrop, type RocketDrop } from '@/lib/arcade-upgrades';
 import { SOUND_KEY } from '@/lib/game-audio';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -317,6 +318,9 @@ interface World {
   pops: Pop[];
   drops: Drop[];
   score: number;
+  combo: number;
+  comboT: number;
+  multiplier: number;
   best: number;
   lives: number;
   shield: boolean;
@@ -419,6 +423,7 @@ function createWorld(): World {
     pops: [],
     drops: [],
     score: 0,
+    combo: 0, comboT: 0, multiplier: 1,
     best: readBest(),
     lives: MAX_LIVES,
     shield: false,
@@ -714,12 +719,19 @@ function updateFoes(w: World, dt: number, sfx: Sfx, opts: Opts) {
   }
 }
 
+function awardKill(w: World, base: number): number {
+  const award = rocketCombo(w.combo, w.comboT, base);
+  w.combo = award.streak; w.comboT = award.remaining; w.multiplier = award.multiplier;
+  w.score += award.points;
+  return award.points;
+}
+
 function destroyRock(w: World, r: Rock, sfx: Sfx, opts: Opts, noScore = false) {
   const tier = ROCK_TIERS[r.tier];
   explode(w, r.x, r.y, tier.draw * 0.6, opts, sfx);
   if (!noScore) {
-    w.score += tier.score;
-    w.pops.push(pop(r.x, r.y, `+${tier.score}`));
+    const points = awardKill(w, tier.score);
+    w.pops.push(pop(r.x, r.y, `+${points}`));
   }
   if (r.tier < 2) {
     for (const dir of [-1, 1] as const) {
@@ -749,8 +761,8 @@ function destroyFoe(w: World, f: Foe, sfx: Sfx, opts: Opts, noScore = false) {
   explode(w, f.x, f.y, 95, opts, sfx);
   if (!noScore) {
     const pts = (f.kind === 1 ? DIVER_SCORE : GUNNER_SCORE) * (f.elite ? 2 : 1);
-    w.score += pts;
-    w.pops.push(pop(f.x, f.y, `+${pts}`));
+    const points = awardKill(w, pts);
+    w.pops.push(pop(f.x, f.y, `+${points}`));
     if (Math.random() < 0.25) w.drops.push({ x: f.x, y: f.y, vy: 95, dead: false, kind: chooseRocketDrop() });
   }
   f.hp = 0;
@@ -758,6 +770,7 @@ function destroyFoe(w: World, f: Foe, sfx: Sfx, opts: Opts, noScore = false) {
 
 function damagePlayer(w: World, sfx: Sfx, opts: Opts) {
   const p = w.player;
+  w.combo = 0; w.comboT = 0; w.multiplier = 1;
   const wasShielded = w.shield;
   const result = absorbHit(w.lives, w.shield);
   w.lives = result.lives; w.shield = result.shield;
@@ -815,6 +828,8 @@ function updateWorld(w: World, dt: number, io: IO) {
   }
 
   w.elapsed += dt;
+  w.comboT = Math.max(0, w.comboT - dt);
+  if (!w.comboT) { w.combo = 0; w.multiplier = 1; }
   if (w.waveBannerT > 0) w.waveBannerT -= dt;
   w.waveTimer -= dt;
   if (w.waveTimer <= 0) {
@@ -1110,6 +1125,8 @@ function drawHud(ctx: CanvasRenderingContext2D, w: World, rocket?: HTMLImageElem
   }
 
   if (w.shield) { ctx.fillStyle = '#76ecff'; ctx.fillText('SHIELD READY', 18, 84); }
+
+  if (w.combo > 0) { ctx.fillStyle = '#ffcf6b'; ctx.fillText(`COMBO ${w.combo} · ${w.multiplier}x`, 18, 101); }
 
   // Lives as mini rocket icons
   for (let i = 0; i < w.lives; i++) {
@@ -1632,7 +1649,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
               <p className="font-mono text-xs text-neutral-300 max-w-md leading-relaxed">
                 Destroy asteroids · outgun alien fighters · collect repair, weapon and one-hit shield drops.
                 <br />
-                Cannons auto-fire — you just steer and survive.
+                Chain takedowns within four seconds for up to 4× points. Cannons auto-fire.
               </p>
               <div className="hidden sm:flex flex-row items-center gap-3 font-mono text-[11px] text-neutral-400">
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">MOUSE / WASD — steer</span>
