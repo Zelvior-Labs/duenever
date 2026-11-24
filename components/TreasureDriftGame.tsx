@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause, Play, X } from 'lucide-react';
 import { newSea, stepSea, seaTarget, clamp, type Sea } from '@/lib/treasure-drift';
 import { SoundButton, useGameSound } from './GameSound';
+import { StoryNotes } from './StoryNotes';
 
 type Mode = 'menu' | 'playing' | 'paused' | 'over';
 const BEST = 'duenever_treasure_drift_best';
@@ -88,9 +89,10 @@ export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
       </div>
       <div role="status" aria-live="polite" className="pointer-events-none absolute left-1/2 top-20 z-10 -translate-x-1/2 whitespace-nowrap rounded-full bg-[#002b3c]/85 px-4 py-2 font-mono text-xs font-bold text-amber-200 empty:hidden">{feedback}</div>
       {mode === 'playing' && <div className="pointer-events-none absolute bottom-4 left-3 rounded-lg border border-cyan-200/20 bg-[#002b3c]/85 p-2 font-mono text-[10px] text-cyan-100 sm:text-xs"><strong>VOYAGE GOALS</strong><p>Coins {Math.min(frame.totalCoins,12)}/12 {frame.missions.coins ? '✓' : '· +150'}</p><p>Chests {Math.min(frame.chests,2)}/2 {frame.missions.chests ? '✓' : '· +200'}</p><p>Survive {Math.min(Math.floor(frame.time),45)}/45s {frame.missions.survival ? '✓' : '· +150'}</p></div>}
-      {mode !== 'playing' && <div className="absolute inset-0 top-14 flex items-center justify-center bg-[#001c2b]/85 p-5 text-center">
+      {mode !== 'playing' && <div className="absolute inset-0 top-14 flex items-start justify-center overflow-y-auto bg-[#001c2b]/85 p-5 text-center sm:items-center">
         <div className="max-w-lg space-y-4"><h2 className="font-mono text-3xl font-black text-amber-300 sm:text-5xl">{mode === 'over' ? 'VOYAGE OVER' : mode === 'paused' ? 'PAUSED' : 'TREASURE DRIFT'}</h2>
           <p className="text-sm text-cyan-50">{mode === 'over' ? `You collected ${frame.score} points. Best: ${Math.max(best, frame.score)}.` : mode === 'paused' ? 'Take a breather, captain.' : 'Steer freely around the reef, collect coins, and build a treasure streak. Find treasure chests for 100 points and compass magnets to pull in coins. Every 10 coins in a streak restores a life. Complete voyage goals for bonus points. Avoid rocks!'}</p>
+          <StoryNotes game="treasure-drift" progress={frame.time} />
           <p className="text-xs text-cyan-200">Drag or tap anywhere to steer in two dimensions · Arrow keys / WASD · P to pause</p>
           <button className="rounded-lg bg-amber-300 px-8 py-3 font-mono font-bold text-[#003444] hover:bg-amber-200" onClick={mode === 'paused' ? toggle : start}>{mode === 'paused' ? 'RESUME' : mode === 'over' ? 'SAIL AGAIN' : 'SET SAIL'}</button>
         </div></div>}

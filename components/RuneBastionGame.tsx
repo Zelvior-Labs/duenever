@@ -3,6 +3,7 @@
 import { chainTargets, selectTarget, repairBastion, waveLabel, REPAIR_COST, chooseMastery, masteryStats, waveClearBonus, MASTERY_COST, splashProfile, projectileArrives, type Mastery, type TargetMode } from '@/lib/rune-bastion';
 import { canUsePulse } from '@/lib/arcade-upgrades';
 import { SOUND_KEY } from '@/lib/game-audio';
+import { StoryNotes } from './StoryNotes';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Pause, Play, Shield, Volume2, VolumeX, X } from 'lucide-react';
 import { getStoredSettings } from '@/lib/storage';
@@ -1732,6 +1733,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
                 <br />
                 Build towers including the new splash-damage Ember Cannon, specialize level 2 towers and earn flawless wave gold.
               </p>
+              <StoryNotes game="rune-bastion" />
               <div className="hidden sm:flex flex-row items-center gap-3 font-mono text-[11px] text-neutral-400">
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">1 / 2 / 3 / 4 / 5 — pick tower</span>
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">CLICK PAD — build</span>
@@ -1750,7 +1752,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
           )}
 
           {status === 'paused' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 backdrop-blur-[2px] text-center">
+            <div className="absolute inset-0 flex flex-col items-center justify-start sm:justify-center gap-4 overflow-y-auto bg-black/70 p-4 backdrop-blur-[2px] text-center">
               <h2 className="font-mono text-3xl font-black tracking-widest text-neutral-100">PAUSED</h2>
               <button
                 onClick={togglePause}
@@ -1758,6 +1760,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
               >
                 ▶ Resume
               </button>
+              <StoryNotes game="rune-bastion" progress={hud.wave} />
             </div>
           )}
 
@@ -1771,6 +1774,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
               <div className="font-mono text-xs text-neutral-400">
                 survived {finalStats.wave} wave{finalStats.wave === 1 ? '' : 's'} · best {Math.max(best, finalStats.score)}
               </div>
+              <StoryNotes game="rune-bastion" progress={finalStats.wave} />
               <div className="flex items-center gap-3 mt-3">
                 <button
                   onClick={startGame}
