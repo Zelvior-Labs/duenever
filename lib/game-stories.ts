@@ -5,8 +5,8 @@ export type GameStory = { title: string; introduction: string; unit: string | nu
 
 export const GAME_STORIES: Record<StoryId, GameStory> = {
   'the-last-line': {
-    title: 'The night desk',
-    introduction: 'The night operator has gone home sick. A rising river, an old map and an unsigned order arrive at your desk. A caller says he can explain everything—if you do not waste the next fifteen minutes asking the wrong questions.',
+    title: 'The city gate',
+    introduction: 'Three roads lead to the gate. The prefect promises supplies and clear orders, but the reports from the roads tell a different story. Hold the line until morning and decide whose account survives.',
     unit: null, notes: [],
   },
   'rocket-rampage': {
