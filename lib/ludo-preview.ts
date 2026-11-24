@@ -18,3 +18,21 @@ export function ludoTokenStatus(progress: number): string {
   if (progress >= 57) return 'Home';
   return `${57 - progress} steps from home${progress >= 52 ? ' · home lane' : ''}`;
 }
+
+/** Potential exposure on a future opponent roll; not a prediction of turn order or dice. */
+export function ludoMoveExposure(board: BoardState, token: number): number {
+  if (board.die === null || !legalLudo(board).includes(token)) return 0;
+  const player = board.turn, current = board.ludo[player][token];
+  const next = current === -1 ? 0 : current + board.die;
+  if (next >= 52) return 0;
+  const position = (next + player * 13) % 52;
+  if (safe.has(position)) return 0;
+  return board.ludo.reduce((count, pieces, seat) => {
+    if (seat === player) return count;
+    return count + pieces.filter(progress => {
+      if (progress < 0 || progress >= 52) return false;
+      const steps = (position - (progress + seat * 13) + 52) % 52;
+      return steps >= 1 && steps <= 6 && progress + steps < 52;
+    }).length;
+  }, 0);
+}
