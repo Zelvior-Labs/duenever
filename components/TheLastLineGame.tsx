@@ -1,101 +1,34 @@
 'use client';
+import React, {useCallback,useEffect,useRef,useState} from 'react';
+import {X,Pause,Play} from 'lucide-react';
+import {build,decide,DURATION,newGame,ORDERS,position,ROUTES,sell,SITES,tick,TOWERS,upgrade,upgradeCost,type Game,type TowerType} from '@/lib/last-line';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pause, Play, X } from 'lucide-react';
-import { SoundButton, useGameSound } from './GameSound';
-import { advanceRun, choose, ending, newRun, readRun, sceneIndex, SCENES, SCENE_SECONDS, TOTAL_SECONDS, type Run } from '@/lib/last-line';
-
-const STORAGE = 'duenever_last_line_v1';
-type Mode = 'menu' | 'playing' | 'paused' | 'ending';
-const button = 'min-h-[44px] rounded-md border border-amber-100/25 bg-[#17232a] px-4 py-2 text-sm font-semibold text-amber-50 transition hover:border-amber-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 disabled:opacity-50';
-const primary = 'min-h-[46px] rounded-md bg-[#e2b668] px-5 py-2.5 text-sm font-bold text-[#182027] hover:bg-[#f3cf88] focus-visible:outline focus-visible:outline-2 focus-visible:outline-white';
-const formatTime = (seconds: number) => { const s = Math.max(0, Math.ceil(seconds)); return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`; };
-
-export function TheLastLineGame({ onBack }: { onBack: () => void }) {
-  const { muted, toggle: toggleSound, play, stop } = useGameSound();
-  const [mode, setMode] = useState<Mode>('menu');
-  const [run, setRun] = useState<Run>(newRun);
-  const [confirmRestart, setConfirmRestart] = useState(false);
-  const runRef = useRef<Run>(newRun());
-  const modeRef = useRef<Mode>('menu');
-  const lastTick = useRef(0);
-  const changeMode = useCallback((next: Mode) => { modeRef.current = next; setMode(next); }, []);
-  const save = useCallback((next: Run) => { try { localStorage.setItem(STORAGE, JSON.stringify(next)); } catch { /* The game still works without storage. */ } }, []);
-  const applyRun = useCallback((next: Run) => { runRef.current = next; setRun(next); save(next); }, [save]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE);
-      const saved = raw ? readRun(JSON.parse(raw)) : null;
-      if (saved) { runRef.current = saved; setRun(saved); changeMode(saved.elapsed >= TOTAL_SECONDS ? 'ending' : 'paused'); }
-    } catch { /* Ignore a damaged or unavailable save. */ }
-  }, [changeMode]);
-
-  const syncClock = useCallback(() => {
-    if (modeRef.current !== 'playing') return runRef.current;
-    const now = performance.now();
-    const next = advanceRun(runRef.current, Math.max(0, (now - lastTick.current) / 1000));
-    lastTick.current = now;
-    const previousIndex = sceneIndex(runRef.current);
-    applyRun(next);
-    if (next.elapsed >= TOTAL_SECONDS) { stop(); play('win'); changeMode('ending'); }
-    else if (sceneIndex(next) !== previousIndex) play('collect');
-    return next;
-  }, [applyRun, changeMode, play, stop]);
-  const pause = useCallback(() => {
-    if (modeRef.current !== 'playing') return;
-    syncClock();
-    if (modeRef.current === 'playing') { stop(); changeMode('paused'); }
-  }, [syncClock, stop, changeMode]);
-  const resume = useCallback(() => { lastTick.current = performance.now(); setConfirmRestart(false); changeMode('playing'); }, [changeMode]);
-  const start = useCallback(() => { applyRun(newRun()); setConfirmRestart(false); play('start'); lastTick.current = performance.now(); changeMode('playing'); }, [applyRun, changeMode, play]);
-  const select = (choice: number) => {
-    const displayedIndex = sceneIndex(runRef.current);
-    const latest = syncClock();
-    if (modeRef.current !== 'playing' || sceneIndex(latest) !== displayedIndex) return;
-    applyRun(choose(latest, choice)); play('move');
-  };
-  const quit = () => { if (modeRef.current === 'playing') pause(); onBack(); };
-  useEffect(() => {
-    const timer = window.setInterval(() => { if (modeRef.current === 'playing') syncClock(); }, 1000);
-    const visibility = () => { if (document.hidden) pause(); };
-    const blur = () => pause();
-    const keyboard = (event: KeyboardEvent) => {
-      if ((event.code === 'KeyP' || event.code === 'Escape') && !event.repeat) {
-        if (modeRef.current === 'playing') { event.preventDefault(); pause(); }
-        else if (modeRef.current === 'paused' && !confirmRestart) { event.preventDefault(); resume(); }
-      }
-    };
-    document.addEventListener('visibilitychange', visibility); window.addEventListener('blur', blur); window.addEventListener('keydown', keyboard);
-    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', visibility); window.removeEventListener('blur', blur); window.removeEventListener('keydown', keyboard); };
-  }, [syncClock, pause, resume, confirmRestart]);
-
-  const index = sceneIndex(run), scene = SCENES[index], selected = run.answers[index];
-  const minuteRemaining = SCENE_SECONDS - (run.elapsed % SCENE_SECONDS);
-  const finished = ending(run);
-  return <div role="dialog" aria-modal="true" aria-label="The Last Line game" className="fixed inset-0 z-[70] flex h-[100dvh] flex-col overflow-hidden bg-[#10191d] text-[#ece9df]">
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-30" style={{ backgroundImage: 'url(/games/the-last-line/desk.jpg)' }} />
-    <header className="relative z-10 flex min-h-[64px] shrink-0 items-center justify-between gap-2 border-b border-amber-100/15 bg-[#0c161b]/95 px-3 py-2 sm:px-6">
-      <div className="min-w-0"><p className="font-mono text-[9px] font-bold uppercase tracking-[.2em] text-amber-300">DueNever / Interactive fiction</p><h1 className="truncate text-lg font-bold tracking-tight">The Last Line</h1></div>
-      <div className="flex items-center gap-2"><div role="timer" aria-live="off" aria-label={`Time remaining ${formatTime(TOTAL_SECONDS-run.elapsed)}`} className="rounded border border-amber-200/20 bg-black/30 px-2 py-1 font-mono text-lg tabular-nums text-amber-200">{formatTime(TOTAL_SECONDS-run.elapsed)}</div><SoundButton muted={muted} toggle={toggleSound}/>{(mode==='playing'||mode==='paused') && <button onClick={mode==='playing'?pause:resume} aria-label={mode==='playing'?'Pause story':'Resume story'} className="grid h-10 w-10 place-items-center rounded border border-white/15 bg-black/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">{mode==='playing'?<Pause size={17}/>:<Play size={17}/>}</button>}<button onClick={quit} aria-label="Quit game" className="grid h-10 w-10 place-items-center rounded border border-white/15 bg-black/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300"><X size={18}/></button></div>
-    </header>
-    <main className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain">
-      {mode === 'menu' && <div className="mx-auto flex min-h-full max-w-3xl items-center px-5 py-8"><div className="space-y-5 rounded-xl border border-amber-100/15 bg-[#0c171d]/95 p-6 shadow-2xl sm:p-9"><p className="font-mono text-xs uppercase tracking-[.18em] text-amber-300">A real-time psychological story · approximately 15 minutes</p><h2 className="font-serif text-4xl font-bold sm:text-6xl">The Last Line</h2><p className="max-w-xl text-base leading-relaxed text-stone-300">A rising river. A disputed order. One voice on the emergency line insists it knows best. You have fifteen minutes to decide what goes into the record—and what happens at the gate.</p><p className="max-w-xl text-sm leading-relaxed text-stone-400">Fictional characters may mislead or pressure you. No real calls are made and no personal information is requested. The story pauses when you leave the tab. Your progress is stored only on this device when available.</p><div className="rounded-lg border border-white/10 bg-black/20 p-4 text-sm leading-relaxed text-stone-300"><strong className="text-amber-200">How to play</strong><p className="mt-1">Each of the 15 calls lasts one minute. Inspect the file, then choose a response; you can change it until the minute ends. No response is also a choice. Earlier decisions affect the ending.</p></div><button onClick={start} className={primary}>Begin the shift</button></div></div>}
-      {mode === 'playing' && <div className="mx-auto grid max-w-6xl gap-4 px-3 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:py-8">
-        <section className="min-w-0 rounded-xl border border-amber-100/20 bg-[#0b171d]/95 p-4 shadow-2xl sm:p-7">
-          <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10px] font-bold uppercase tracking-[.14em] text-amber-300"><span>{scene.chapter}</span><span>Call {index+1} / {SCENES.length} · {formatTime(minuteRemaining)} left</span></div>
-          <div aria-hidden="true" className="mt-3 h-1 overflow-hidden rounded bg-white/10"><div className="h-full bg-amber-400/80" style={{width:`${100 * (1 - (run.elapsed % SCENE_SECONDS) / SCENE_SECONDS)}%`}}/></div>
-          <h2 className="mt-5 font-serif text-3xl font-bold tracking-tight sm:text-4xl">{scene.title}</h2>
-          <p className="mt-4 max-w-3xl text-[15px] leading-7 text-stone-200 sm:text-base">{scene.message}</p>
-          {run.elapsed % SCENE_SECONDS >= 30 && <div className="mt-4 border-l-2 border-amber-500/70 bg-amber-950/25 px-4 py-3 text-sm italic leading-6 text-amber-100" role="status">{scene.pressure}</div>}
-          <details key={index} className="mt-5 rounded-lg border border-sky-100/15 bg-[#172a31] p-4 text-sm text-stone-200"><summary className="cursor-pointer font-bold text-sky-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">Inspect file · {scene.evidenceTitle}</summary><p className="mt-3 leading-6">{scene.evidence}</p></details>
-          <fieldset className="mt-6"><legend className="font-mono text-[10px] font-bold uppercase tracking-widest text-stone-400">Choose a response · change it before the minute ends</legend><div className="mt-3 grid gap-2">{scene.options.map((option, i)=><button key={option.label} onClick={()=>select(i)} aria-pressed={selected===i} className={`min-h-[48px] rounded-md border px-4 py-3 text-left text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 ${selected===i?'border-amber-300 bg-amber-200/15 text-amber-100':'border-white/15 bg-white/[.03] text-stone-200 hover:border-amber-200/60'}`}><span className="mr-3 font-mono text-amber-400">0{i+1}</span>{option.label}</button>)}</div></fieldset>
-          {selected !== null && <div className="mt-4 rounded-lg border border-amber-100/10 bg-black/20 p-4 text-sm leading-6 text-stone-300" aria-live="polite"><span className="mr-2 font-mono text-[10px] uppercase tracking-widest text-amber-300">Morrow</span>{scene.options[selected].reply}</div>}
-        </section>
-        <aside className="space-y-4"><div className="rounded-xl border border-white/10 bg-[#101d22]/95 p-4"><p className="font-mono text-[10px] font-bold uppercase tracking-widest text-amber-300">Desk instructions</p><p className="mt-2 text-xs leading-5 text-stone-300">The clock advances in real time while playing. The latest response is recorded when the minute ends. Pause whenever you need to read.</p></div><details className="rounded-xl border border-white/10 bg-[#101d22]/95 p-4 text-sm"><summary className="cursor-pointer font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300">Shift ledger · {index} completed</summary>{index===0?<p className="mt-3 text-xs text-stone-400">Completed calls appear here.</p>:<ol className="mt-3 max-h-64 space-y-3 overflow-y-auto text-xs leading-5">{SCENES.slice(0,index).map((past,i)=><li key={past.title}><strong className="text-amber-200">{String(i+1).padStart(2,'0')} · {past.title}</strong><p className="text-stone-300">{run.answers[i]===null?'No response recorded':past.options[run.answers[i]!].label}</p></li>)}</ol>}</details></aside>
-      </div>}
-      {mode === 'paused' && <div className="mx-auto flex min-h-full max-w-xl items-center px-5 py-8"><div className="w-full space-y-5 rounded-xl border border-amber-100/15 bg-[#0c171d]/95 p-6 shadow-2xl sm:p-9"><p className="font-mono text-xs uppercase tracking-[.18em] text-amber-300">The clock is stopped</p><h2 className="font-serif text-4xl font-bold">Shift paused</h2><p className="text-sm leading-6 text-stone-300">Call {index+1} of {SCENES.length} · {formatTime(TOTAL_SECONDS-run.elapsed)} remaining. Your current choice is saved on this device if storage is available.</p><div className="flex flex-wrap gap-3"><button onClick={resume} className={primary}>Continue story</button><button onClick={()=>setConfirmRestart(true)} className={button}>Start over</button></div>{confirmRestart && <div className="space-y-3 rounded border border-amber-200/25 bg-black/20 p-4 text-sm"><p>Start over? This replaces the saved shift on this device.</p><div className="flex gap-2"><button onClick={start} className={primary}>Yes, start over</button><button onClick={()=>setConfirmRestart(false)} className={button}>Cancel</button></div></div>}</div></div>}
-      {mode === 'ending' && <div className="mx-auto flex min-h-full max-w-2xl items-center px-5 py-8"><div className="space-y-5 rounded-xl border border-amber-100/15 bg-[#0c171d]/95 p-6 shadow-2xl sm:p-9"><p className="font-mono text-xs uppercase tracking-[.18em] text-amber-300">End of shift</p><h2 className="font-serif text-4xl font-bold sm:text-5xl">{finished.title}</h2><p className="text-base leading-7 text-stone-200">{finished.text}</p><p className="text-sm leading-6 text-stone-400">The story is complete. Your choices shaped the record and the warnings, not a perfect outcome. Records preserved: {finished.proof} · witness actions: {finished.witnesses}.</p><details className="rounded border border-white/15 p-4 text-sm"><summary className="cursor-pointer font-bold">Review your shift</summary><ol className="mt-3 max-h-60 space-y-2 overflow-y-auto text-xs leading-5">{SCENES.map((item,i)=><li key={item.title}><strong className="text-amber-200">{i+1}. {item.title}:</strong> {run.answers[i]===null?'No response recorded':item.options[run.answers[i]!].label}</li>)}</ol></details><div className="flex flex-wrap gap-3"><button onClick={start} className={primary}>Play again</button><button onClick={onBack} className={button}>Back to games</button></div></div></div>}
-    </main>
-  </div>;
+const btn='min-h-10 rounded border border-amber-100/25 bg-[#17282a] px-3 py-2 text-xs font-bold text-amber-50 hover:bg-[#294038] focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-300 disabled:opacity-40';
+const primary='min-h-11 rounded bg-amber-400 px-5 py-2 text-sm font-bold text-[#18221d] hover:bg-amber-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white';
+const clock=(s:number)=>{const n=Math.ceil(Math.max(0,s));return `${Math.floor(n/60).toString().padStart(2,'0')}:${(n%60).toString().padStart(2,'0')}`};
+export function TheLastLineGame({onBack}:{onBack:()=>void}){
+ const [game,setGame]=useState<Game>(newGame), ref=useRef(game); const [mode,setMode]=useState<'menu'|'playing'|'paused'>('menu'); const modeRef=useRef(mode); const [selected,setSelected]=useState<number|null>(null); const [type,setType]=useState<TowerType>('bolt');
+ const apply=useCallback((fn:(g:Game)=>Game)=>{const next=fn(ref.current);ref.current=next;setGame(next);},[]);
+ const changeMode=useCallback((m:typeof mode)=>{modeRef.current=m;setMode(m)},[]);
+ useEffect(()=>{let last=performance.now();const timer=window.setInterval(()=>{const now=performance.now();if(modeRef.current==='playing')apply(g=>tick(g,Math.min((now-last)/1000,.25)));last=now;},100);const hide=()=>{if(document.hidden&&modeRef.current==='playing')changeMode('paused')}; const key=(e:KeyboardEvent)=>{if((e.key==='Escape'||e.key.toLowerCase()==='p')&&!e.repeat){if(modeRef.current==='playing')changeMode('paused');else if(modeRef.current==='paused')changeMode('playing')}}; document.addEventListener('visibilitychange',hide);window.addEventListener('keydown',key);return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',hide);window.removeEventListener('keydown',key)}},[apply,changeMode]);
+ const start=()=>{apply(()=>newGame());setSelected(null);changeMode('playing')};
+ const tower=game.towers.find(t=>t.site===selected); const order=game.pendingChoice===null?null:ORDERS[game.pendingChoice];
+ return <div role="dialog" aria-modal="true" aria-label="The Last Line game" className="fixed inset-0 z-[70] flex h-[100dvh] flex-col overflow-hidden bg-[#0b1716] text-stone-100">
+ <header className="z-10 flex min-h-14 shrink-0 items-center justify-between gap-2 border-b border-amber-100/15 bg-[#101d1b] px-3 sm:px-5"><div><div className="text-[9px] font-bold uppercase tracking-[.2em] text-amber-400">Defense campaign</div><h1 className="font-serif text-lg font-bold">The Last Line</h1></div><div className="flex items-center gap-2 text-xs font-bold sm:gap-5 sm:text-sm"><span title="Gate integrity" className="text-rose-300">Gate {Math.max(0,game.lives)}</span><span className="text-amber-300">{game.gold} gold</span><span className="hidden text-stone-300 sm:inline">Wave {Math.min(15,Math.floor(game.elapsed/60)+1)}/15</span><span className="font-mono">{clock(DURATION-game.elapsed)}</span>{mode!=='menu'&&<button className={btn} onClick={()=>changeMode(mode==='playing'?'paused':'playing')} aria-label={mode==='playing'?'Pause game':'Resume game'}>{mode==='playing'?<Pause size={15}/>:<Play size={15}/>}</button>}<button className={btn} onClick={onBack} aria-label="Quit game"><X size={16}/></button></div></header>
+ <div className="relative min-h-0 flex-1 overflow-auto overscroll-contain" aria-label="Battlefield, scroll to view all roads">
+ <div className="relative h-full min-h-[560px] min-w-[1000px] overflow-hidden bg-cover bg-center" style={{backgroundImage:'linear-gradient(#0a191522,#0a191555),url(/games/the-last-line/battlefield.jpg)'}}>
+ {/* Roads use positioned HTML elements, not a canvas. */}
+ {ROUTES.flatMap((path,r)=>path.slice(1).map((b,i)=>{const a=path[i], horizontal=a.y===b.y;return <div key={`${r}-${i}`} aria-hidden="true" className="absolute border border-[#d6bf8d]/25 bg-[#776440]/80 shadow-[0_0_12px_#1c2117]" style={horizontal?{left:`${Math.min(a.x,b.x)}%`,top:`${a.y-1.7}%`,width:`${Math.abs(b.x-a.x)}%`,height:'3.4%'}:{left:`${a.x-1}%`,top:`${Math.min(a.y,b.y)}%`,height:`${Math.abs(b.y-a.y)}%`,width:'2%'}}/>}))}
+ {[20,50,80].map((y,i)=><div key={y} className="absolute left-1 rounded bg-[#2a1714]/90 px-2 py-1 text-[10px] font-bold uppercase text-rose-200" style={{top:`${y-5}%`}}>{['North','West','South'][i]} road →</div>)}
+ <div className="absolute flex h-[15%] w-[9%] items-center justify-center rounded-lg border-2 border-amber-300/60 bg-[#19251f]/90 text-center shadow-xl" style={{left:'90%',top:'42.5%'}}><div><img src="/games/the-last-line/gate.png" alt="" className="mx-auto h-16 w-24 object-contain drop-shadow-lg"/><div className="text-[10px] font-bold uppercase tracking-wider">The gate</div></div></div>
+ {SITES.map((p,i)=>{const t=game.towers.find(t=>t.site===i);return <button key={i} aria-label={t?`${TOWERS[t.type].name} level ${t.level}, site ${i+1}`:`Build site ${i+1}`} onClick={()=>setSelected(i)} className={`absolute z-10 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-white ${selected===i?'border-white bg-amber-400/40':'border-amber-100/45 bg-[#15281d]/70 hover:bg-amber-400/40'}`} style={{left:`${p.x}%`,top:`${p.y}%`}}>{t?<><img src={`/games/the-last-line/${t.type==='bolt'?'watch':t.type==='cannon'?'mortar':'frost'}.png`} alt="" draggable={false} className="absolute bottom-0 h-16 w-14 max-w-none object-contain drop-shadow-lg"/><span className="absolute -bottom-1 -right-1 rounded bg-[#101b18] px-1 text-[9px] text-amber-200">{t.level}</span></>:<span className="text-xl leading-none text-amber-100/80">+</span>}</button>})}
+ {game.enemies.map(e=>{const p=position(e.route,e.distance);return <div key={e.id} aria-label={`${e.kind}, ${Math.ceil(e.hp)} health`} className="pointer-events-none absolute z-20 h-9 w-9 -translate-x-1/2 -translate-y-1/2" style={{left:`${p.x}%`,top:`${p.y}%`}}><img src="/games/the-last-line/raider.png" alt="" className="h-full w-full object-contain drop-shadow-lg" style={{filter:e.slow>0?'sepia(1) hue-rotate(150deg) saturate(3)':e.kind==='armored'?'brightness(.7)':'none',transform:e.kind==='armored'?'scale(1.3)':'none'}}/><div className="absolute -top-1 left-0 h-1 w-full bg-black"><div className="h-full bg-rose-400" style={{width:`${100*e.hp/e.maxHp}%`}}/></div></div>})}
+ {game.shots.map(s=>{const dx=(s.to.x-s.from.x),dy=(s.to.y-s.from.y);return <div key={s.id} aria-hidden="true" className="pointer-events-none absolute z-30 h-1 origin-left rounded-full" style={{left:`${s.from.x}%`,top:`${s.from.y}%`,width:`${Math.hypot(dx,dy)}%`,background:s.color,transform:`rotate(${Math.atan2(dy,dx)*180/Math.PI}deg)`,boxShadow:`0 0 8px ${s.color}`}}/>})}
+ <div className="pointer-events-none absolute bottom-3 left-3 rounded bg-[#101c19]/90 px-3 py-2 text-xs text-stone-300">{game.kills} defeated · {game.leaks} breached · scroll to explore the battlefield</div>
+ </div></div>
+ <aside className="z-10 flex shrink-0 flex-wrap items-center gap-2 border-t border-amber-100/15 bg-[#101d1b] px-3 py-2 sm:px-5"><div className="mr-2 min-w-[115px]"><div className="text-[10px] uppercase tracking-wider text-amber-300">{selected===null?'Select a site':`Site ${selected+1}`}</div><div className="text-xs text-stone-300">{tower?`${TOWERS[tower.type].name} · level ${tower.level}`:'Choose a tower, then a + site'}</div></div>{!tower? <>{(Object.keys(TOWERS) as TowerType[]).map(t=><button key={t} onClick={()=>setType(t)} className={`${btn} ${type===t?'border-amber-300 bg-amber-900/50':''}`} title={TOWERS[t].description}>{TOWERS[t].name} · {TOWERS[t].cost}</button>)}<button className={primary} disabled={selected===null||game.gold<TOWERS[type].cost||mode!=='playing'||!!order||!!game.outcome} onClick={()=>selected!==null&&apply(g=>build(g,selected,type))}>Build</button></>:<><button className={btn} disabled={tower.level>=3||game.gold<upgradeCost(tower)||mode!=='playing'||!!order||!!game.outcome} onClick={()=>selected!==null&&apply(g=>upgrade(g,selected))}>{tower.level>=3?'Max level':`Upgrade · ${upgradeCost(tower)} gold`}</button><button className={btn} disabled={mode!=='playing'||!!order||!!game.outcome} onClick={()=>selected!==null&&apply(g=>sell(g,selected))}>Sell · 65% refund</button></>}<span className="hidden text-xs text-stone-400 lg:inline">{TOWERS[tower?.type??type].description}</span></aside>
+ {(mode==='menu'||mode==='paused'||order||game.outcome)&&<div className="absolute inset-0 z-40 flex items-center justify-center overflow-y-auto bg-[#08110f]/85 p-4"><div className="my-auto w-full max-w-xl rounded-xl border border-amber-200/25 bg-[#14221e] p-5 shadow-2xl sm:p-8">
+ {mode==='menu'?<><p className="text-xs font-bold uppercase tracking-[.2em] text-amber-400">A 15-minute defense campaign</p><h2 className="mt-2 font-serif text-4xl font-bold">Hold the Last Line</h2><p className="mt-4 leading-7 text-stone-300">Three roads lead to the city. Build a network of defenses, survive fifteen waves and decide what to believe when the prefect&apos;s orders stop matching the evidence.</p><div className="mt-4 rounded bg-black/25 p-4 text-sm leading-6 text-stone-300"><strong className="text-amber-200">How to play</strong><br/>Select a tower type and a + build site, then press Build. Towers attack automatically; earn gold from enemies to build, upgrade or sell. Protect the gate. Drag or scroll across the map on smaller screens. P or Escape pauses.</div><button className={`${primary} mt-5`} onClick={start}>Begin defense</button></>:game.outcome?<><p className="text-xs uppercase tracking-wider text-amber-400">Campaign complete</p><h2 className="mt-2 font-serif text-4xl font-bold">{game.outcome==='won'?'The gate holds':'The line breaks'}</h2><p className="mt-4 leading-7 text-stone-300">{game.outcome==='won'?'The roads are quiet by morning.':'The last defenses fall before morning.'} {game.choices.filter(x=>x===1).length>=2?'The witnesses and the manifest survive. The prefect will have to answer for his report.':'The prefect has his signed account. The people who could have contradicted it are harder to find.'}</p><p className="mt-3 text-sm text-stone-400">{game.kills} enemies defeated · {game.leaks} reached the gate</p><div className="mt-5 flex gap-2"><button className={primary} onClick={start}>Play again</button><button className={btn} onClick={onBack}>Back to games</button></div></>:mode==='paused'?<><h2 className="font-serif text-3xl font-bold">Paused</h2><p className="mt-3 text-stone-300">The battle is stopped. Take your time.</p><button className={`${primary} mt-5`} onClick={()=>changeMode('playing')}>Resume defense</button></>:order&&<><p className="text-xs font-bold uppercase tracking-[.18em] text-amber-400">A message from the wall · battle paused</p><h2 className="mt-2 font-serif text-3xl font-bold">{order.title}</h2><p className="mt-4 leading-7 text-stone-300">{order.message}</p><div className="mt-5 grid gap-2 sm:grid-cols-2">{order.options.map((o,i)=><button key={o.label} className={`${btn} text-left`} onClick={()=>apply(g=>decide(g,i))}><span className="block text-sm">{o.label}</span><span className="mt-1 block font-normal text-amber-200">{o.detail}</span></button>)}</div></>}
+ </div></div>}
+ </div>;
 }
