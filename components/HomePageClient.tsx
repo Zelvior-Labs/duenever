@@ -29,6 +29,7 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
   const [activeTab, setActiveTab] = useState<'all' | 'saved'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<GameCategory | 'All'>('All');
+  const [players, setPlayers] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>('featured');
 
   const [favourites, setFavourites] = useState<string[]>([]);
@@ -151,6 +152,8 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
       result = result.filter(g => g.category === selectedCategory);
     }
 
+    if (players !== null) result = result.filter(g => (g.playerCounts ?? [1]).includes(players));
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
@@ -179,7 +182,7 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
     }
 
     return result;
-  }, [activeTab, selectedCategory, searchQuery, sortBy, favourites, recents]);
+  }, [games, activeTab, selectedCategory, players, searchQuery, sortBy, favourites, recents]);
 
   const recentGames = useMemo(() => {
     return recents
@@ -351,17 +354,22 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center gap-2 font-mono text-xs" aria-label="Filter by players">
+            <span className="text-neutral-400">Players:</span>
+            {[null, 1, 2, 4, 6].map(n => <button key={n ?? 'all'} onClick={() => setPlayers(n)} className={`rounded-lg border px-3 py-2 ${players === n ? 'border-[var(--accent)] bg-[var(--accent)] text-black' : 'border-neutral-700 bg-neutral-900 text-neutral-300'}`}>{n === null ? 'Any' : n === 1 ? 'Single player' : `${n} players`}</button>)}
+          </div>
           {/* Filter count & active filter summary */}
           <div className="flex items-center justify-between text-xs font-mono text-neutral-500 pt-1">
             <span>
               Showing {filteredGames.length} {filteredGames.length === 1 ? 'game' : 'games'}
               {activeTab === 'saved' && ' in Saved'}
             </span>
-            {(searchQuery || selectedCategory !== 'All' || activeTab === 'saved') && (
+            {(searchQuery || selectedCategory !== 'All' || players !== null || activeTab === 'saved') && (
               <button
                 onClick={() => {
                   setSearchQuery('');
                   setSelectedCategory('All');
+                  setPlayers(null);
                   setActiveTab('all');
                 }}
                 className="text-[color:var(--accent)] hover:underline cursor-pointer"
@@ -380,6 +388,7 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
               onClick={() => {
                 setSearchQuery('');
                 setSelectedCategory('All');
+                setPlayers(null);
                 setActiveTab('all');
               }}
               className="mt-4 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-mono text-xs rounded-lg border border-neutral-700 transition-colors cursor-pointer"
@@ -415,7 +424,7 @@ export function HomePageClient({ config }: { config: SiteConfig }) {
             <span>•</span>
             <span>No installs</span>
             <span>•</span>
-            <span>Local data only</span>
+            <span>Private rooms</span>
           </div>
         </div>
       </footer>

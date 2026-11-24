@@ -194,7 +194,7 @@ export async function getSiteConfig(): Promise<SiteConfig> {
   const base = process.env.SUPABASE_URL;
   if (!base) return DEFAULT_CONFIG;
   try {
-    const res = await fetch(`${base.replace(/\/$/, '')}${EDGE_PATH}`, { next: { revalidate: 30 } });
+    const res = await fetch(`${base.replace(/\/$/, '')}${EDGE_PATH}`, { next: { revalidate: 30 }, signal: AbortSignal.timeout(4000) });
     if (!res.ok) return DEFAULT_CONFIG;
     const json = (await res.json()) as { config?: unknown };
     return normalizeConfig(json.config);
@@ -209,7 +209,7 @@ export async function getSiteConfigFresh(): Promise<SiteConfig | null> {
   const token = process.env.SUPABASE_ADMIN_TOKEN;
   if (!base) return null;
   try {
-    const res = await fetch(`${base.replace(/\/$/, '')}${EDGE_PATH}`, { cache: 'no-store' });
+    const res = await fetch(`${base.replace(/\/$/, '')}${EDGE_PATH}`, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     if (!res.ok) return null;
     const json = (await res.json()) as { config?: unknown };
     return normalizeConfig(json.config);
@@ -230,6 +230,7 @@ export async function saveSiteConfig(config: SiteConfig): Promise<{ ok: boolean;
       headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
       body: JSON.stringify(config),
       cache: 'no-store',
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string };

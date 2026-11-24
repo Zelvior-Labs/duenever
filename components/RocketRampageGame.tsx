@@ -1532,14 +1532,14 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-[70] overflow-y-auto bg-black/95 p-2 sm:p-4 font-sans"
+      className="fixed inset-0 z-[70] h-[100dvh] overflow-hidden bg-black font-sans"
       role="dialog"
       aria-modal="true"
       aria-label="Rocket Rampage game"
     >
-      <div className="w-full max-w-5xl mx-auto min-h-full flex flex-col justify-center gap-2">
+      <div className="w-full h-full flex flex-col gap-0">
         {/* Top bar */}
-        <div className="flex items-center justify-between font-mono text-xs">
+        <div className="flex shrink-0 items-center justify-between font-mono text-xs px-2 py-1 bg-neutral-950">
           <div className="flex items-center gap-2 text-neutral-200 font-bold tracking-wide">
             <RocketIcon className="w-4 h-4 text-[color:var(--accent)]" />
             ROCKET RAMPAGE
@@ -1577,14 +1577,14 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
 
         {/* Playfield */}
         <div
-          className="relative w-full mx-auto rounded-xl border-2 border-neutral-700 overflow-hidden bg-black shadow-[0_0_70px_rgba(204,255,0,0.08)]"
+          className="relative w-full flex-1 min-h-0 overflow-hidden bg-black"
           onPointerMove={handlePointerMove}
           onPointerDown={handlePointerDown}
           onPointerUp={(e) => { if (touchRef.current?.id === e.pointerId) { touchRef.current = null; pointerRef.current.active = false; } }}
           onPointerCancel={() => { touchRef.current = null; pointerRef.current.active = false; }}
-          style={{ touchAction: playing ? 'none' : 'pan-y', maxWidth: 'min(100%, max(320px, calc((100dvh - 210px) * 1.607)))' }}
+          style={{ touchAction: playing ? 'none' : 'pan-y' }}
         >
-          <canvas ref={canvasRef} className="block w-full h-auto select-none" aria-label="Rocket Rampage playfield" />
+          <canvas ref={canvasRef} className="block w-full h-full select-none" aria-label="Rocket Rampage playfield" />
 
           {/* Loading overlay */}
           {status === 'loading' && (
@@ -1674,7 +1674,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
         </div>
 
         {playing && <button type="button" onClick={() => { if (worldRef.current) worldRef.current.player.burstReq = true; }} className="sm:hidden min-h-12 w-full rounded-lg bg-[var(--accent)] text-black font-mono font-bold">FIRE SPREAD BURST</button>}
-        <p className="text-[10px] font-mono text-neutral-500 text-center">Drag to steer on touch · burst button fires spread · mouse / WASD and Space on desktop · collect R or S power-ups</p>
+        <p className="hidden sm:block text-[10px] font-mono text-neutral-500 text-center">Drag to steer on touch · burst button fires spread · mouse / WASD and Space on desktop · collect R or S power-ups</p>
       </div>
     </div>
   );
