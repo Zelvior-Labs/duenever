@@ -45,7 +45,9 @@ export function boardAction(input: BoardState, seat: number, action: BoardAction
     else if (chess.isStalemate()) { s.finished = true; s.result = 'Draw by stalemate'; }
     else if (chess.isInsufficientMaterial()) { s.finished = true; s.result = 'Draw by insufficient material'; }
     else if (Number(chess.fen().split(' ')[4]) >= 150) { s.finished = true; s.result = 'Draw by seventy-five-move rule'; }
-    else {
+    // A position cannot occur five times in fewer than sixteen reversible
+    // half-moves. Avoid replaying the entire history on most opening moves.
+    else if (Number(chess.fen().split(' ')[4]) >= 16) {
       const replay = new Chess(); const key = (c: Chess) => c.fen().split(' ').slice(0, 4).join(' ');
       const target = key(chess); let seen = key(replay) === target ? 1 : 0;
       for (const move of s.chessMoves) { replay.move(move); if (key(replay) === target) seen++; }
