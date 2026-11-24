@@ -1,5 +1,6 @@
 'use client';
 
+import { canUsePulse } from '@/lib/arcade-upgrades';
 import { SOUND_KEY } from '@/lib/game-audio';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Pause, Play, Shield, Volume2, VolumeX, X } from 'lucide-react';
@@ -157,6 +158,7 @@ interface World {
   wave: number; // last completed / current wave number
   phase: 'build' | 'combat';
   buildT: number;
+  pulseCooldown: number;
   spawnQ: SpawnItem[];
   spawnT: number;
   score: number;
@@ -395,6 +397,7 @@ function createWorld(): World {
     wave: 0,
     phase: 'build',
     buildT: BUILD_TIME,
+    pulseCooldown: 0,
     spawnQ: [],
     spawnT: 0,
     score: 0,
@@ -516,6 +519,7 @@ function towerStats(kind: TowerKind, level: number) {
 
 function updateWorld(w: World, dt: number, sfx: Sfx, opts: Opts) {
   w.time += dt;
+  w.pulseCooldown = Math.max(0, w.pulseCooldown - dt);
 
   // ----- phase logic -----
   if (w.phase === 'build') {
@@ -1238,6 +1242,7 @@ interface HudMirror {
   buildT: number;
   score: number;
   enemies: number;
+  pulseCooldown: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1259,7 +1264,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
 
   const [status, setStatus] = useState<Status>('loading');
   const [muted, setMuted] = useState(false);
-  const [hud, setHud] = useState<HudMirror>({ gold: START_GOLD, lives: START_LIVES, wave: 1, phase: 'build', buildT: BUILD_TIME, score: 0, enemies: 0 });
+  const [hud, setHud] = useState<HudMirror>({ gold: START_GOLD, lives: START_LIVES, wave: 1, phase: 'build', buildT: BUILD_TIME, score: 0, enemies: 0, pulseCooldown: 0 });
   const [speed, setSpeed] = useState(1);
   const [choice, setChoice] = useState<TowerKind | null>(null);
   const [selPad, setSelPad] = useState<number | null>(null);
@@ -1287,6 +1292,15 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
     if (statusRef.current === 'playing') { sfxRef.current?.stop(); applyStatus('paused'); }
     else if (statusRef.current === 'paused') { sfxRef.current?.ensure(); applyStatus('playing'); }
   }, [applyStatus]);
+
+  const usePulse = () => {
+    const w = worldRef.current;
+    if (!w || !canUsePulse(w.pulseCooldown, statusRef.current === 'playing' && w.phase === 'combat', w.enemies.length)) return;
+    w.pulseCooldown = 30;
+    sfxRef.current?.frost();
+    for (const enemy of w.enemies) if (enemy.hp > 0) enemy.slowT = Math.max(enemy.slowT, 3);
+    w.pops.push({ x: W / 2, y: H / 2, text: 'FROST PULSE', life: 1.4, color: '#8FEFFF' });
+  };
 
   const togglePauseRef = useRef(togglePause);
   togglePauseRef.current = togglePause;
@@ -1462,6 +1476,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
           buildT: w.buildT,
           score: w.score,
           enemies: w.enemies.length,
+          pulseCooldown: w.pulseCooldown,
         });
       }
     };
@@ -1659,7 +1674,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
               <p className="font-mono text-xs text-neutral-300 max-w-md leading-relaxed">
                 Wolves rush. Shamans heal. Dragons burn.
                 <br />
-                Raise mage, ranger and frost towers — nothing gets past the runes.
+                Raise towers and unleash a recharging frost pulse to slow the enemy.
               </p>
               <div className="hidden sm:flex flex-row items-center gap-3 font-mono text-[11px] text-neutral-400">
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">1 / 2 / 3 — pick tower</span>
@@ -1760,6 +1775,8 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
               </button>
             </>
           )}
+
+          <button onClick={usePulse} disabled={!playing || hud.phase !== 'combat' || hud.enemies === 0 || hud.pulseCooldown > 0} className="px-4 py-1.5 rounded-lg border-2 border-cyan-400 text-cyan-200 font-bold disabled:opacity-40" title="Slow all enemies for 3 seconds; recharges in 30 seconds">Frost pulse {hud.pulseCooldown > 0 ? `${Math.ceil(hud.pulseCooldown)}s` : 'ready'}</button>
 
           <button
             onClick={callNextWave}

@@ -1,0 +1,14 @@
+import { legalLudo, type BoardState } from './board-games';
+const safe = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
+/** Describe a legal move without executing it or revealing any hidden information. */
+export function ludoMovePreview(board: BoardState, token: number): string | null {
+  if (board.die === null || !legalLudo(board).includes(token)) return null;
+  const player = board.turn, current = board.ludo[player][token];
+  const next = current === -1 ? 0 : current + board.die;
+  if (next === 57) return 'Finish';
+  if (next >= 52) return 'Home lane';
+  const pos = (next + player * 13) % 52;
+  if (safe.has(pos)) return current === -1 ? 'Enter on safe square' : 'Safe square';
+  const captures = board.ludo.reduce((total, pieces, seat) => total + (seat === player ? 0 : pieces.filter(p => p >= 0 && p < 52 && (p + seat * 13) % 52 === pos).length), 0);
+  return captures ? `Capture ${captures}` : 'Advance';
+}

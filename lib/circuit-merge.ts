@@ -33,3 +33,11 @@ export function slide(grid: Grid, direction: Direction): { grid: Grid; score: nu
 export function canMove(grid: Grid): boolean {
   return grid.some((v, i) => v === 0 || (i % 4 < 3 && v === grid[i + 1]) || (i < 12 && v === grid[i + 4]));
 }
+
+/** Suggest a legal move, preferring immediate merges; never changes the board. */
+export function suggestMove(grid: Grid): Direction | null {
+  const directions: Direction[] = ['up', 'left', 'down', 'right'];
+  const candidates = directions.map(direction => ({ direction, ...slide(grid, direction) })).filter(move => move.changed);
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.direction ?? null;
+}

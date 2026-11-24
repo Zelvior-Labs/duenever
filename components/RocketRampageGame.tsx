@@ -1,5 +1,6 @@
 'use client';
 
+import { absorbHit, chooseRocketDrop, type RocketDrop } from '@/lib/arcade-upgrades';
 import { SOUND_KEY } from '@/lib/game-audio';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Pause, Play, Rocket as RocketIcon, Trophy, Volume2, VolumeX, X } from 'lucide-react';
@@ -40,6 +41,7 @@ const ASSET_SRC = {
   rocket: '/games/rocket-rampage/rocket.png',
   asteroid: '/games/rocket-rampage/asteroid.png',
   enemy: '/games/rocket-rampage/enemy.png',
+  shield: '/games/rocket-rampage/shield.png',
 } as const;
 
 type AssetKey = keyof typeof ASSET_SRC;
@@ -295,7 +297,7 @@ interface Drop {
   y: number;
   vy: number;
   dead: boolean;
-  kind: 'repair' | 'rapid' | 'spread';
+  kind: RocketDrop;
 }
 
 interface Pop {
@@ -317,6 +319,7 @@ interface World {
   score: number;
   best: number;
   lives: number;
+  shield: boolean;
   elapsed: number;
   wave: number;
   waveBannerT: number;
@@ -418,6 +421,7 @@ function createWorld(): World {
     score: 0,
     best: readBest(),
     lives: MAX_LIVES,
+    shield: false,
     elapsed: 0,
     wave: 1,
     waveBannerT: 2,
@@ -736,7 +740,7 @@ function destroyRock(w: World, r: Rock, sfx: Sfx, opts: Opts, noScore = false) {
       });
     }
   } else if (!noScore && Math.random() < 0.12) {
-    w.drops.push({ x: r.x, y: r.y, vy: 95, dead: false, kind: Math.random() < 0.5 ? 'repair' : Math.random() < 0.5 ? 'rapid' : 'spread' });
+    w.drops.push({ x: r.x, y: r.y, vy: 95, dead: false, kind: chooseRocketDrop() });
   }
   r.hp = 0;
 }
@@ -747,14 +751,17 @@ function destroyFoe(w: World, f: Foe, sfx: Sfx, opts: Opts, noScore = false) {
     const pts = (f.kind === 1 ? DIVER_SCORE : GUNNER_SCORE) * (f.elite ? 2 : 1);
     w.score += pts;
     w.pops.push(pop(f.x, f.y, `+${pts}`));
-    if (Math.random() < 0.25) w.drops.push({ x: f.x, y: f.y, vy: 95, dead: false, kind: Math.random() < 0.5 ? 'repair' : Math.random() < 0.5 ? 'rapid' : 'spread' });
+    if (Math.random() < 0.25) w.drops.push({ x: f.x, y: f.y, vy: 95, dead: false, kind: chooseRocketDrop() });
   }
   f.hp = 0;
 }
 
 function damagePlayer(w: World, sfx: Sfx, opts: Opts) {
   const p = w.player;
-  w.lives -= 1;
+  const wasShielded = w.shield;
+  const result = absorbHit(w.lives, w.shield);
+  w.lives = result.lives; w.shield = result.shield;
+  if (wasShielded) w.pops.push(pop(p.x, p.y, 'SHIELD BLOCKED'));
   w.shake = 16;
   sfx.hurt();
   explode(w, p.x, p.y, 70, opts, sfx);
@@ -1007,7 +1014,10 @@ function updateWorld(w: World, dt: number, io: IO) {
   for (const d of w.drops) {
     if (!d.dead && hit(p.x, p.y, PLAYER_R + 6, d.x, d.y, 13)) {
       d.dead = true;
-      if (d.kind !== 'repair') {
+      if (d.kind === 'shield') {
+        w.shield = true;
+        w.pops.push(pop(d.x, d.y, 'SHIELD READY'));
+      } else if (d.kind !== 'repair') {
         w.power = d.kind;
         w.powerT = 12;
         w.pops.push(pop(d.x, d.y, d.kind === 'rapid' ? 'RAPID FIRE' : 'SPREAD FIRE'));
@@ -1051,7 +1061,8 @@ function drawBolt(ctx: CanvasRenderingContext2D, b: Bolt) {
   }
 }
 
-function drawDrop(ctx: CanvasRenderingContext2D, d: Drop, time: number) {
+function drawDrop(ctx: CanvasRenderingContext2D, d: Drop, time: number, shield?: HTMLImageElement) {
+  if (d.kind === 'shield' && shield) { ctx.drawImage(shield, d.x - 18, d.y - 18, 36, 36); return; }
   const r = 11 + Math.sin(time * 6 + d.x) * 1.2;
   ctx.fillStyle = d.kind === 'repair' ? '#3EE06E' : d.kind === 'rapid' ? '#FFB22C' : '#AD8CFF';
   ctx.beginPath();
@@ -1097,6 +1108,8 @@ function drawHud(ctx: CanvasRenderingContext2D, w: World, rocket?: HTMLImageElem
     ctx.fillStyle = '#FFD23C';
     ctx.fillText(`${w.power === 'rapid' ? 'RAPID' : 'SPREAD'} ${Math.ceil(w.powerT)}s`, 18, 67);
   }
+
+  if (w.shield) { ctx.fillStyle = '#76ecff'; ctx.fillText('SHIELD READY', 18, 84); }
 
   // Lives as mini rocket icons
   for (let i = 0; i < w.lives; i++) {
@@ -1163,7 +1176,7 @@ function drawWorld(
   const p = w.player;
 
   // Drops
-  for (const d of w.drops) drawDrop(ctx, d, time);
+  for (const d of w.drops) drawDrop(ctx, d, time, assets.shield);
 
   // Rocks (flash variant pre-rendered — no ctx.filter)
   const rockFlash = rc.flash.asteroid;
@@ -1617,7 +1630,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
                 ROCKET <span className="text-[color:var(--accent)]">RAMPAGE</span>
               </h2>
               <p className="font-mono text-xs text-neutral-300 max-w-md leading-relaxed">
-                Destroy asteroids · outgun alien fighters · grab repair kits.
+                Destroy asteroids · outgun alien fighters · collect repair, weapon and one-hit shield drops.
                 <br />
                 Cannons auto-fire — you just steer and survive.
               </p>

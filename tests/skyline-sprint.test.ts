@@ -36,3 +36,12 @@ test('jump cannot be triggered twice before the first physics step', () => {
   const s = jump(newSprint());
   assert.equal(jump(s), s);
 });
+
+test('shield pickup blocks exactly one hit', () => {
+  let s: SprintState = {...newSprint(), spawn:100, y:9, objects:[{id:1,kind:'shield',x:19,hit:false}]};
+  s=stepSprint(s,0,false); assert.equal(s.shield,true);
+  s={...s,y:0,objects:[{id:2,kind:'crate',x:19,hit:false}]};
+  s=stepSprint(s,0,false); assert.equal(s.lives,3); assert.equal(s.shield,false);
+  s={...s,invincible:0,objects:[{id:3,kind:'crate',x:19,hit:false}]};
+  assert.equal(stepSprint(s,0,false).lives,2);
+});
