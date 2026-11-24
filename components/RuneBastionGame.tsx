@@ -1,5 +1,6 @@
 'use client';
 
+import { chainTargets, selectTarget, repairBastion, waveLabel, REPAIR_COST, type TargetMode } from '@/lib/rune-bastion';
 import { canUsePulse } from '@/lib/arcade-upgrades';
 import { SOUND_KEY } from '@/lib/game-audio';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -59,12 +60,13 @@ const PADS: ReadonlyArray<readonly [number, number]> = [
   [110, 430],
 ];
 
-type TowerKind = 0 | 1 | 2; // mage | ranger | frost
+type TowerKind = 0 | 1 | 2 | 3; // mage | ranger | frost | storm
 
 const TOWERS: Record<TowerKind, { name: string; cost: number; dmg: number; range: number; rate: number; blurb: string }> = {
   0: { name: 'Arcane Spire', cost: 70, dmg: 24, range: 132, rate: 0.9, blurb: 'Homing bolts' },
   1: { name: 'Ranger Post', cost: 50, dmg: 10, range: 152, rate: 0.34, blurb: 'Rapid arrows' },
   2: { name: 'Frost Keep', cost: 90, dmg: 8, range: 122, rate: 1.1, blurb: 'AoE chill 45%' },
+  3: { name: 'Storm Obelisk', cost: 110, dmg: 22, range: 140, rate: 1.15, blurb: 'Chains to 3 foes' },
 };
 
 interface Tower {
@@ -73,6 +75,7 @@ interface Tower {
   level: number; // 1..3
   cool: number;
   invested: number;
+  targetMode: TargetMode;
   aim: number; // aim angle for drawing
 }
 
@@ -150,6 +153,7 @@ interface World {
   enemies: Enemy[];
   projs: Proj[];
   blasts: Blast[];
+  beams: { x1: number; y1: number; x2: number; y2: number; life: number }[];
   parts: Particle[];
   partI: number;
   pops: Pop[];
@@ -177,6 +181,7 @@ const ASSET_SRC = {
   mage: '/games/rune-bastion/tower-mage.png',
   ranger: '/games/rune-bastion/tower-ranger.png',
   frost: '/games/rune-bastion/tower-frost.png',
+  storm: '/games/rune-bastion/tower-storm.png',
   goblin: '/games/rune-bastion/enemy-goblin.png',
   brute: '/games/rune-bastion/enemy-brute.png',
   dragon: '/games/rune-bastion/enemy-dragon.png',
@@ -378,6 +383,7 @@ function createWorld(): World {
     enemies: [],
     projs: [],
     blasts: [],
+    beams: [],
     parts: Array.from({ length: PART_MAX }, () => ({
       x: 0,
       y: 0,
@@ -598,17 +604,7 @@ function updateWorld(w: World, dt: number, sfx: Sfx, opts: Opts) {
     const st = towerStats(tw.kind, tw.level);
     if (tw.cool > 0) continue;
 
-    // Target: deepest-progress enemy within range
-    let target: Enemy | null = null;
-    let bestProg = -1;
-    for (const e of w.enemies) {
-      if (e.hp <= 0) continue;
-      const d = Math.hypot(e.x - px, e.y - py);
-      if (d <= st.range && e.prog > bestProg) {
-        bestProg = e.prog;
-        target = e;
-      }
-    }
+    const target = selectTarget(w.enemies, px, py, st.range, tw.targetMode);
     if (!target) continue;
 
     tw.cool = st.rate;
@@ -648,6 +644,15 @@ function updateWorld(w: World, dt: number, sfx: Sfx, opts: Opts) {
         dead: false,
       });
       sfx.arrow();
+    } else if (tw.kind === 3) {
+      const chain = chainTargets(target, w.enemies, 95, 3);
+      let from = { x: px, y: py };
+      chain.forEach((enemy, index) => {
+        w.beams.push({ x1: from.x, y1: from.y, x2: enemy.x, y2: enemy.y, life: 0.18 });
+        damageEnemy(w, enemy, st.dmg * (index === 0 ? 1 : 0.7), opts, sfx);
+        from = enemy;
+      });
+      sfx.mage();
     } else {
       // Frost shard — lobbed at the target's current position, AoE on arrival
       const a = Math.atan2(target.y - py, target.x - px);
@@ -734,11 +739,14 @@ function updateWorld(w: World, dt: number, sfx: Sfx, opts: Opts) {
         if (e.hp <= 0) continue;
         if (Math.hypot(e.x - b.x, e.y - b.y) < b.maxR) {
           damageEnemy(w, e, b.dmg, opts, sfx);
-          e.slowT = 2;
+          e.slowT = Math.max(e.slowT, 2);
         }
       }
     }
   }
+
+  for (const beam of w.beams) beam.life -= dt;
+  compact(w.beams, beam => beam.life > 0);
 
   // ----- particles / pops -----
   for (let i = 0; i < PART_MAX; i++) {
@@ -974,7 +982,7 @@ function drawTowerAt(
   selected: boolean,
   opts: Opts,
 ) {
-  const key = kind === 0 ? 'mage' : kind === 1 ? 'ranger' : 'frost';
+  const key = kind === 0 ? 'mage' : kind === 1 ? 'ranger' : kind === 2 ? 'frost' : 'storm';
   const img = assets[key];
   const size = 46;
   ctx.save();
@@ -1116,6 +1124,14 @@ function drawWorld(
   // Enemies (sorted so bosses draw on top)
   const sorted = [...w.enemies].sort((a, b) => b.kind - a.kind);
   for (const e of sorted) drawEnemy(ctx, e, assets, rc.flash, w.time);
+
+  // Short-lived lightning traces make every chain visible.
+  for (const beam of w.beams) {
+    ctx.globalAlpha = Math.min(1, beam.life / .18);
+    ctx.strokeStyle = '#b5ecff'; ctx.lineWidth = 3; ctx.beginPath();
+    ctx.moveTo(beam.x1, beam.y1); ctx.lineTo(beam.x2, beam.y2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 
   // Projectiles
   for (const pr of w.projs) {
@@ -1264,7 +1280,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
 
   const [status, setStatus] = useState<Status>('loading');
   const [muted, setMuted] = useState(false);
-  const [hud, setHud] = useState<HudMirror>({ gold: START_GOLD, lives: START_LIVES, wave: 1, phase: 'build', buildT: BUILD_TIME, score: 0, enemies: 0, pulseCooldown: 0 });
+  const [hud, setHud] = useState<HudMirror>({ gold: START_GOLD, lives: START_LIVES, wave: 0, phase: 'build', buildT: BUILD_TIME, score: 0, enemies: 0, pulseCooldown: 0 });
   const [speed, setSpeed] = useState(1);
   const [choice, setChoice] = useState<TowerKind | null>(null);
   const [selPad, setSelPad] = useState<number | null>(null);
@@ -1300,6 +1316,22 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
     sfxRef.current?.frost();
     for (const enemy of w.enemies) if (enemy.hp > 0) enemy.slowT = Math.max(enemy.slowT, 3);
     w.pops.push({ x: W / 2, y: H / 2, text: 'FROST PULSE', life: 1.4, color: '#8FEFFF' });
+  };
+
+  const repair = () => {
+    const w = worldRef.current;
+    if (!w) return;
+    const result = repairBastion(w.gold, w.lives, w.phase, statusRef.current === 'playing');
+    if (!result) return;
+    w.gold = result.gold; w.lives = result.lives; sfxRef.current?.upgrade();
+    w.pops.push({ x: W / 2, y: 90, text: 'BASTION REPAIRED', life: 1.4, color: '#9AFFA9' });
+  };
+  const cycleTarget = () => {
+    const w = worldRef.current, pad = uiRef.current.selPad;
+    if (!w || pad === null || statusRef.current !== 'playing') return;
+    const tower = w.towers[pad]; if (!tower) return;
+    tower.targetMode = tower.targetMode === 'first' ? 'last' : tower.targetMode === 'last' ? 'strongest' : 'first';
+    setHud(old => ({...old}));
   };
 
   const togglePauseRef = useRef(togglePause);
@@ -1357,7 +1389,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
     const w = worldRef.current;
     const i = uiRef.current.selPad;
     const sfx = sfxRef.current;
-    if (!w || i === null || !sfx) return;
+    if (!w || i === null || !sfx || statusRef.current !== 'playing') return;
     const tw = w.towers[i];
     if (!tw || tw.level >= 3) return;
     const cost = Math.round(TOWERS[tw.kind].cost * 0.8 * tw.level);
@@ -1375,7 +1407,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
     const w = worldRef.current;
     const i = uiRef.current.selPad;
     const sfx = sfxRef.current;
-    if (!w || i === null || !sfx) return;
+    if (!w || i === null || !sfx || statusRef.current !== 'playing') return;
     const tw = w.towers[i];
     if (!tw) return;
     const refund = Math.round(tw.invested * 0.7);
@@ -1391,7 +1423,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
   const callNextWave = useCallback(() => {
     const w = worldRef.current;
     const sfx = sfxRef.current;
-    if (!w || !sfx) return;
+    if (!w || !sfx || statusRef.current !== 'playing') return;
     if (w.phase === 'build') {
       const bonus = Math.max(0, Math.floor(w.buildT * 2));
       if (bonus > 0) {
@@ -1471,7 +1503,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
         setHud({
           gold: w.gold,
           lives: w.lives,
-          wave: Math.max(1, w.wave),
+          wave: w.wave,
           phase: w.phase,
           buildT: w.buildT,
           score: w.score,
@@ -1510,9 +1542,11 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
             togglePauseRef.current();
           }
         }
+        if (st !== 'playing') return;
         if (e.code === 'Digit1') pickTower(0);
         if (e.code === 'Digit2') pickTower(1);
         if (e.code === 'Digit3') pickTower(2);
+        if (e.code === 'Digit4') pickTower(3);
         if (e.code === 'KeyU') upgradeSelected();
         if (e.code === 'KeyS' && !e.ctrlKey && !e.metaKey) sellSelected();
         if (e.code === 'Space' || e.code === 'KeyN') {
@@ -1587,7 +1621,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
       return;
     }
     w.gold -= cost;
-    w.towers[pad] = { kind: choiceKind, pad, level: 1, cool: 0.25, invested: cost, aim: -Math.PI / 2 };
+    w.towers[pad] = { kind: choiceKind, pad, level: 1, cool: 0.25, invested: cost, targetMode: 'first', aim: -Math.PI / 2 };
     sfxRef.current?.build();
     sparks(w, PADS[pad][0], PADS[pad][1], '#C09AFF', 8, optsRef.current);
     // Keep the choice selected so players can drop several towers quickly
@@ -1674,10 +1708,10 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
               <p className="font-mono text-xs text-neutral-300 max-w-md leading-relaxed">
                 Wolves rush. Shamans heal. Dragons burn.
                 <br />
-                Raise towers and unleash a recharging frost pulse to slow the enemy.
+                Build towers, chain lightning with the Storm Obelisk, repair between waves, and unleash a frost pulse.
               </p>
               <div className="hidden sm:flex flex-row items-center gap-3 font-mono text-[11px] text-neutral-400">
-                <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">1 / 2 / 3 — pick tower</span>
+                <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">1 / 2 / 3 / 4 — pick tower</span>
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">CLICK PAD — build</span>
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">SPACE — call wave</span>
               </div>
@@ -1735,14 +1769,15 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
 
         {/* Build / command bar */}
         <div className="flex shrink-0 flex-wrap items-stretch justify-center gap-1 bg-neutral-950 p-1 font-mono text-xs">
-          {([0, 1, 2] as TowerKind[]).map((k) => {
+          {([0, 1, 2, 3] as TowerKind[]).map((k) => {
             const t = TOWERS[k];
             const selected = choice === k;
-            const img = k === 0 ? '/games/rune-bastion/tower-mage.png' : k === 1 ? '/games/rune-bastion/tower-ranger.png' : '/games/rune-bastion/tower-frost.png';
+            const img = k === 0 ? '/games/rune-bastion/tower-mage.png' : k === 1 ? '/games/rune-bastion/tower-ranger.png' : k === 2 ? '/games/rune-bastion/tower-frost.png' : '/games/rune-bastion/tower-storm.png';
             return (
               <button
                 key={k}
                 onClick={() => pickTower(k)}
+                disabled={!playing}
                 className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border-2 transition-colors cursor-pointer text-left ${
                   selected ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]' : 'border-neutral-700 bg-neutral-900 hover:border-neutral-500'
                 } ${hud.gold < t.cost ? 'opacity-55' : ''}`}
@@ -1760,15 +1795,17 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
 
           {selTower && (
             <>
+              <button onClick={cycleTarget} disabled={!playing} className="px-3 py-1.5 rounded-lg border-2 border-blue-500/60 text-blue-200 font-bold disabled:opacity-40" title="Choose which enemy this tower targets">Target: {selTower.targetMode}</button>
               <button
                 onClick={upgradeSelected}
-                disabled={selTower.level >= 3 || upgradeCost === null || hud.gold < upgradeCost}
+                disabled={!playing || selTower.level >= 3 || upgradeCost === null || hud.gold < upgradeCost}
                 className="px-3 py-1.5 rounded-lg border-2 border-emerald-500/60 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed font-bold"
               >
                 {selTower.level >= 3 ? 'MAX LEVEL' : `⬆ Upgrade · ⛁ ${upgradeCost}`}
               </button>
               <button
                 onClick={sellSelected}
+                disabled={!playing}
                 className="px-3 py-1.5 rounded-lg border-2 border-rose-500/60 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 transition-colors cursor-pointer font-bold"
               >
                 ⛁ Sell {Math.round(selTower.invested * 0.7)}
@@ -1776,6 +1813,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
             </>
           )}
 
+          <button onClick={repair} disabled={!playing || hud.phase !== 'build' || hud.lives >= START_LIVES || hud.gold < REPAIR_COST} className="px-3 py-1.5 rounded-lg border-2 border-emerald-500 text-emerald-200 font-bold disabled:opacity-40" title="Restore up to three lives between waves">Repair +3 · {REPAIR_COST} gold</button>
           <button onClick={usePulse} disabled={!playing || hud.phase !== 'combat' || hud.enemies === 0 || hud.pulseCooldown > 0} className="px-4 py-1.5 rounded-lg border-2 border-cyan-400 text-cyan-200 font-bold disabled:opacity-40" title="Slow all enemies for 3 seconds; recharges in 30 seconds">Frost pulse {hud.pulseCooldown > 0 ? `${Math.ceil(hud.pulseCooldown)}s` : 'ready'}</button>
 
           <button
@@ -1783,12 +1821,12 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
             disabled={hud.phase !== 'build' || !playing}
             className="px-4 py-1.5 rounded-lg border-2 border-[var(--accent)] bg-[var(--accent)] text-black font-bold hover:bg-lime-300 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {hud.phase === 'build' ? `▶ Call wave ${hud.wave + 1} (+${Math.max(0, Math.floor(hud.buildT * 2))})` : `Wave ${hud.wave} · ${hud.enemies} left`}
+            {hud.phase === 'build' ? `▶ Wave ${hud.wave + 1}: ${waveLabel(hud.wave + 1)} (+${Math.max(0, Math.floor(hud.buildT * 2))})` : `Wave ${hud.wave} · ${hud.enemies} left`}
           </button>
         </div>
 
         <p className="hidden sm:block text-[10px] font-mono text-neutral-500 text-center">
-          Pick a tower (1/2/3) → click a rune pad to build · click a tower to upgrade/sell (U/S) · Space calls the next wave early for bonus gold · P pause
+          Pick a tower (1/2/3/4) → click a rune pad to build · click a tower to upgrade/sell (U/S) · Space calls the next wave early for bonus gold · P pause
         </p>
       </div>
     </div>

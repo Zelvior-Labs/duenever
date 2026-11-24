@@ -2,10 +2,11 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause, Play, X } from 'lucide-react';
+import { treasureReward } from '@/lib/arcade-features';
 import { attractTreasure } from '@/lib/arcade-upgrades';
 import { SoundButton, useGameSound } from './GameSound';
 
-type Item = { id: number; kind: 'rock' | 'coin' | 'magnet'; x: number; y: number };
+type Item = { id: number; kind: 'rock' | 'coin' | 'magnet' | 'chest'; x: number; y: number };
 type Mode = 'menu' | 'playing' | 'paused' | 'over';
 type Sea = { x: number; target: number; items: Item[]; score: number; lives: number; time: number; spawn: number; coins: number; inv: number; magnet: number; id: number };
 const initial = (): Sea => ({ x: 50, target: 50, items: [], score: 0, lives: 3, time: 0, spawn: 0.4, coins: 0, inv: 0, magnet: 0, id: 0 });
@@ -51,7 +52,7 @@ export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
         if (w.spawn <= 0) {
           const x = 10 + Math.random() * 80;
           const roll = Math.random();
-          w.items.push({ id: ++w.id, kind: roll < 0.08 ? 'magnet' : roll < 0.52 ? 'coin' : 'rock', x, y: -12 });
+          w.items.push({ id: ++w.id, kind: roll < 0.06 ? 'chest' : roll < 0.14 ? 'magnet' : roll < 0.54 ? 'coin' : 'rock', x, y: -12 });
           w.spawn = Math.max(0.48, 0.95 - w.time / 170);
         }
         const speed = Math.min(45, 22 + w.time * 0.16);
@@ -60,7 +61,10 @@ export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
           if (item.kind === 'coin' && item.y > 40) item.x = attractTreasure(item.x, w.x, dt, w.magnet > 0);
           if (Math.abs(item.x - w.x) < (item.kind === 'rock' ? 7 : 6) && Math.abs(item.y - 80) < 7) {
             item.y = 120;
-            if (item.kind === 'coin') { play('collect'); w.coins++; w.score += 10 + Math.min(40, (w.coins - 1) * 2); }
+            if (item.kind === 'coin' || item.kind === 'chest') {
+              play('collect'); const reward = treasureReward(item.kind, w.coins, w.lives);
+              w.coins = reward.streak; w.score += reward.score; w.lives = reward.lives;
+            }
             else if (item.kind === 'magnet') { play('collect'); w.magnet = 8; }
             else if (!w.inv) { play('hit'); w.lives--; w.coins = 0; w.inv = 2; }
           }
@@ -95,7 +99,7 @@ export function TreasureDriftGame({ onBack }: { onBack: () => void }) {
       </div>
       {mode !== 'playing' && <div className="absolute inset-0 top-14 flex items-center justify-center bg-[#001c2b]/85 p-5 text-center">
         <div className="max-w-lg space-y-4"><h2 className="font-mono text-3xl font-black text-amber-300 sm:text-5xl">{mode === 'over' ? 'VOYAGE OVER' : mode === 'paused' ? 'PAUSED' : 'TREASURE DRIFT'}</h2>
-          <p className="text-sm text-cyan-50">{mode === 'over' ? `You collected ${frame.score} points. Best: ${Math.max(best, frame.score)}.` : mode === 'paused' ? 'Take a breather, captain.' : 'Steer through the reef, collect coins, and build a treasure streak. Collect compass magnets to pull in coins for eight seconds. Avoid the rocks — you have three lives!'}</p>
+          <p className="text-sm text-cyan-50">{mode === 'over' ? `You collected ${frame.score} points. Best: ${Math.max(best, frame.score)}.` : mode === 'paused' ? 'Take a breather, captain.' : 'Steer through the reef, collect coins, and build a treasure streak. Find treasure chests for 100 points and compass magnets to pull in coins. Every 10 coins in a streak restores a life, up to three. Avoid rocks!'}</p>
           <p className="text-xs text-cyan-200">Drag or tap to steer · Arrow keys / A D · P to pause</p>
           <button className="rounded-lg bg-amber-300 px-8 py-3 font-mono font-bold text-[#003444] hover:bg-amber-200" onClick={mode === 'paused' ? toggle : start}>{mode === 'paused' ? 'RESUME' : mode === 'over' ? 'SAIL AGAIN' : 'SET SAIL'}</button>
         </div></div>}

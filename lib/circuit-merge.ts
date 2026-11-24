@@ -41,3 +41,17 @@ export function suggestMove(grid: Grid): Direction | null {
   candidates.sort((a, b) => b.score - a.score);
   return candidates[0]?.direction ?? null;
 }
+
+/** Stable UTC-day seed; identical moves yield the same spawns in daily mode. */
+export function dailySeed(day: string): number {
+  let hash = 2166136261;
+  for (const char of day) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  return hash >>> 0;
+}
+export function seededRandom(seed: number): { value: number; seed: number } {
+  const next = (seed + 0x6d2b79f5) >>> 0;
+  let n = next;
+  n = Math.imul(n ^ n >>> 15, n | 1);
+  n ^= n + Math.imul(n ^ n >>> 7, n | 61);
+  return { value: ((n ^ n >>> 14) >>> 0) / 4294967296, seed: next };
+}

@@ -12,3 +12,9 @@ export function ludoMovePreview(board: BoardState, token: number): string | null
   const captures = board.ludo.reduce((total, pieces, seat) => total + (seat === player ? 0 : pieces.filter(p => p >= 0 && p < 52 && (p + seat * 13) % 52 === pos).length), 0);
   return captures ? `Capture ${captures}` : 'Advance';
 }
+
+export function ludoTokenStatus(progress: number): string {
+  if (progress < 0) return 'At base · roll six to enter';
+  if (progress >= 57) return 'Home';
+  return `${57 - progress} steps from home${progress >= 52 ? ' · home lane' : ''}`;
+}
