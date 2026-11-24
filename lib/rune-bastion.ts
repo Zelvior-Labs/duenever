@@ -46,3 +46,11 @@ export function masteryStats(damage: number, rate: number, mastery: Mastery | nu
 export function waveClearBonus(wave: number, leaks: number) {
   return { base: 20 + wave * 4, flawless: leaks === 0 ? 15 + wave * 3 : 0 };
 }
+
+/** Splash types have different roles: frost slows, cannon deals wider damage. */
+export function splashProfile(kind: 'frost' | 'cannon') {
+  return kind === 'frost' ? { radius: 58, slow: true, color: '#8FD8FF' } : { radius: 74, slow: false, color: '#FFAB55' };
+}
+export function projectileArrives(distance: number, speed: number, dt: number) {
+  return distance <= Math.max(0, speed * dt) + 2;
+}
