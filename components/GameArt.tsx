@@ -1,5 +1,6 @@
 import React from 'react';
 import { Game } from '@/lib/games';
+import { cardImage } from '@/lib/image-variants';
 
 interface GameArtProps {
   game: Game;
@@ -17,7 +18,11 @@ export function GameArt({ game, className = '' }: GameArtProps) {
         aria-hidden="true"
       >
         <img
-          src={game.art.cardImage}
+          src={cardImage(game.art.cardImage)}
+          loading="lazy"
+          decoding="async"
+          width={600}
+          height={338}
           alt=""
           draggable={false}
           className="absolute inset-0 w-full h-full object-cover"
