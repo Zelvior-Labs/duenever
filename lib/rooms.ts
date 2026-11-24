@@ -29,7 +29,7 @@ async function save(room: Room, version: number): Promise<boolean> {
   if (mode() === 'memory') { if (memory.get(room.code)?.version !== version) return false; memory.set(room.code, structuredClone(room)); return true; }
   const result = await call({ op: 'save', room, version }) as { ok: boolean }; return result.ok;
 }
-function view(room: Room, seat: number) { return { code: room.code, seat, board: room.board, names: room.players.map((p, i) => room.board.seats[i] === 'bot' ? `Bot ${i + 1}` : p?.name || 'Waiting…'), ready: room.players.every((p, i) => room.board.seats[i] === 'bot' || !!p), expires: room.expires }; }
+function view(room: Room, seat: number) { return { code: room.code, version: room.version, seat, board: room.board, names: room.players.map((p, i) => room.board.seats[i] === 'bot' ? `Bot ${i + 1}` : p?.name || 'Waiting…'), ready: room.players.every((p, i) => room.board.seats[i] === 'bot' || !!p), expires: room.expires }; }
 function authenticate(room: Room, raw: unknown): number {
   if (typeof raw !== 'string' || raw.length > 128) return -1;
   const hash = digest(raw); return room.players.findIndex((p) => !!p && equal(p.hash, hash));
@@ -52,6 +52,7 @@ export async function handleRoom(data: Record<string, unknown>) {
   const room = await get(data.code); if (!room) throw new Error('Room not found or expired');
   const version = room.version;
   if (data.op === 'join') {
+    if (data.game !== undefined && data.game !== room.board.game) throw new Error(`This is a ${room.board.game} room. Open that game to join.`);
     const seat = room.players.findIndex((p, i) => room.board.seats[i] === 'human' && !p);
     if (seat < 0) throw new Error('Room is full');
     const credential = token(32); room.players[seat] = { hash: digest(credential), name: cleanName(data.name) };

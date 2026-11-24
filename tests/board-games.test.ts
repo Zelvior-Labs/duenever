@@ -33,3 +33,9 @@ test('repetition and an intended move can be claimed without making that move', 
   const result=boardAction(s,1,{type:'claim-draw',from:'f6',to:'g8'},roll);
   assert.equal(result.finished,true); assert.equal(result.chessMoves.length,7);
 });
+test('fivefold repetition still ends the game after sixteen reversible plies', () => {
+  let s = newBoard('chess', ['human','human']);
+  const cycle = [[0,'g1','f3'],[1,'g8','f6'],[0,'f3','g1'],[1,'f6','g8']] as const;
+  for (let n=0; n<4; n++) for (const [seat,from,to] of cycle) s=boardAction(s,seat,{type:'move',from,to},roll);
+  assert.equal(s.finished,true); assert.equal(s.result,'Draw by fivefold repetition');
+});
