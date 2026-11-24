@@ -1,9 +1,14 @@
 /** Fictional framing for the games. Notes never alter game rules or multiplayer state. */
-export type StoryId = 'rocket-rampage' | 'rune-bastion' | 'treasure-drift' | 'skyline-sprint' | 'circuit-merge' | 'chess' | 'ludo';
+export type StoryId = 'the-last-line' | 'rocket-rampage' | 'rune-bastion' | 'treasure-drift' | 'skyline-sprint' | 'circuit-merge' | 'chess' | 'ludo';
 export type StoryNote = { at: number; heading: string; text: string };
 export type GameStory = { title: string; introduction: string; unit: string | null; notes: readonly StoryNote[] };
 
 export const GAME_STORIES: Record<StoryId, GameStory> = {
+  'the-last-line': {
+    title: 'The night desk',
+    introduction: 'The night operator has gone home sick. A rising river, an old map and an unsigned order arrive at your desk. A caller says he can explain everything—if you do not waste the next fifteen minutes asking the wrong questions.',
+    unit: null, notes: [],
+  },
   'rocket-rampage': {
     title: 'The shipping lane',
     introduction: 'The freight pilots call it the short way home. On the charts it is a lane through a debris field; lately someone has been shooting at anything that uses it. Your shift is to keep a passage open.',
