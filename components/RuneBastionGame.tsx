@@ -75,7 +75,7 @@ interface Tower {
 }
 
 interface Enemy {
-  kind: 0 | 1 | 2; // goblin | brute | dragon boss
+  kind: 0 | 1 | 2 | 3 | 4; // goblin | brute | dragon | wolf | shaman
   wp: number;
   x: number;
   y: number;
@@ -139,7 +139,7 @@ interface Pop {
 }
 
 interface SpawnItem {
-  kind: 0 | 1 | 2;
+  kind: 0 | 1 | 2 | 3 | 4;
   at: number; // wave-relative spawn time
 }
 
@@ -177,6 +177,8 @@ const ASSET_SRC = {
   goblin: '/games/rune-bastion/enemy-goblin.png',
   brute: '/games/rune-bastion/enemy-brute.png',
   dragon: '/games/rune-bastion/enemy-dragon.png',
+  wolf: '/games/rune-bastion/enemy-wolf.png',
+  shaman: '/games/rune-bastion/enemy-shaman.png',
 } as const;
 
 type AssetKey = keyof typeof ASSET_SRC;
@@ -402,12 +404,14 @@ function buildWave(n: number): SpawnItem[] {
   for (let i = 0; i < goblins; i++) items.push({ kind: 0, at: 0.4 + i * gap });
   const brutes = Math.floor(n / 3);
   for (let i = 0; i < brutes; i++) items.push({ kind: 1, at: 2.5 + i * 2.4 });
+  if (n >= 2) for (let i = 0; i < Math.min(7, Math.floor(n / 2)); i++) items.push({ kind: 3, at: 1.2 + i * 1.3 });
+  if (n >= 4) for (let i = 0; i < Math.min(4, Math.floor(n / 4)); i++) items.push({ kind: 4, at: 3 + i * 3.5 });
   if (n % 8 === 0) items.push({ kind: 2, at: 4 + brutes * 2.4 });
   items.sort((a, b) => a.at - b.at);
   return items;
 }
 
-function spawnEnemy(w: World, kind: 0 | 1 | 2, n: number) {
+function spawnEnemy(w: World, kind: 0 | 1 | 2 | 3 | 4, n: number) {
   const [x, y] = PATH[0];
   let hp: number;
   let speed: number;
@@ -423,12 +427,22 @@ function spawnEnemy(w: World, kind: 0 | 1 | 2, n: number) {
     speed = 34;
     bounty = 25 + Math.floor(n / 3);
     dmg = 3;
+  } else if (kind === 3) {
+    hp = 40 * (1 + (n - 1) * 0.15);
+    speed = 105 + Math.min(30, n);
+    bounty = 11; dmg = 1;
+  } else if (kind === 4) {
+    hp = 130 * (1 + (n - 1) * 0.16);
+    speed = 49; bounty = 24; dmg = 2;
   } else {
     hp = 1500 * (1 + Math.max(0, n / 8 - 1) * 0.85);
     speed = 40;
     bounty = 120;
     dmg = 6;
   }
+  // Cyclic wave modifiers keep familiar enemies tactically distinct.
+  if (n % 4 === 2) speed *= 1.22;
+  if (n % 4 === 3) hp *= 1.3;
   w.enemies.push({
     kind,
     wp: 1,
@@ -449,6 +463,8 @@ function spawnEnemy(w: World, kind: 0 | 1 | 2, n: number) {
 function callWave(w: World, sfx: Sfx) {
   if (w.phase !== 'build') return;
   w.wave += 1;
+  const modifier = w.wave % 4 === 2 ? 'SWIFT WAVE' : w.wave % 4 === 3 ? 'ARMORED WAVE' : '';
+  if (modifier) w.pops.push({ x: W / 2, y: H / 2 - 60, text: modifier, life: 2.2, color: '#FFD23C' });
   w.phase = 'combat';
   w.spawnQ = buildWave(w.wave);
   w.spawnT = 0;
@@ -518,6 +534,13 @@ function updateWorld(w: World, dt: number, sfx: Sfx, opts: Opts) {
     e.t += dt;
     if (e.hit > 0) e.hit -= dt;
     if (e.slowT > 0) e.slowT -= dt;
+    // Shamans steadily heal nearby allies; focus fire to stop them.
+    if (e.kind === 4 && e.hp > 0) {
+      for (const ally of w.enemies) {
+        if (ally !== e && ally.hp > 0 && Math.hypot(ally.x - e.x, ally.y - e.y) < 90)
+          ally.hp = Math.min(ally.maxHp, ally.hp + ally.maxHp * 0.025 * dt);
+      }
+    }
     const sp = e.speed * (e.slowT > 0 ? 0.55 : 1);
     let step = sp * dt;
     while (step > 0 && e.wp < PATH.length) {
@@ -885,9 +908,9 @@ function buildFlash(img: HTMLImageElement): HTMLCanvasElement | null {
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 
 function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, assets: GameAssets, flash: RenderCache['flash'], time: number) {
-  const key = e.kind === 0 ? 'goblin' : e.kind === 1 ? 'brute' : 'dragon';
+  const key = e.kind === 0 ? 'goblin' : e.kind === 1 ? 'brute' : e.kind === 2 ? 'dragon' : e.kind === 3 ? 'wolf' : 'shaman';
   const img = assets[key];
-  const size = e.kind === 2 ? 62 : e.kind === 1 ? 52 : 34;
+  const size = e.kind === 2 ? 62 : e.kind === 1 ? 52 : e.kind === 4 ? 42 : 34;
   ctx.save();
   ctx.translate(e.x, e.y);
   ctx.rotate(Math.sin(e.t * 2.4) * 0.08);
@@ -1481,11 +1504,17 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
 
   // Pointer → pad hover / click
   const padAt = (lx: number, ly: number): number | null => {
+    // Maintain a finger-sized target, even when the board is scaled down.
+    const width = canvasRef.current?.getBoundingClientRect().width || W;
+    const radius = Math.max(27, Math.min(54, 22 * W / width));
+    let nearest: number | null = null;
+    let closest = radius;
     for (let i = 0; i < PADS.length; i++) {
       const [px, py] = PADS[i];
-      if (Math.hypot(lx - px, ly - py) < 27) return i;
+      const distance = Math.hypot(lx - px, ly - py);
+      if (distance < closest) { nearest = i; closest = distance; }
     }
-    return null;
+    return nearest;
   };
 
   const toLogical = (clientX: number, clientY: number) => {
@@ -1545,12 +1574,12 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/95 p-2 sm:p-6 font-sans"
+      className="fixed inset-0 z-[70] overflow-y-auto bg-black/95 p-2 sm:p-4 font-sans"
       role="dialog"
       aria-modal="true"
       aria-label="Rune Bastion game"
     >
-      <div className="w-full max-w-5xl flex flex-col gap-3">
+      <div className="w-full max-w-5xl mx-auto min-h-full flex flex-col justify-center gap-2">
         {/* Top bar */}
         <div className="flex items-center justify-between font-mono text-xs">
           <div className="flex items-center gap-2 text-neutral-200 font-bold tracking-wide">
@@ -1597,10 +1626,10 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
 
         {/* Playfield */}
         <div
-          className="relative w-full rounded-xl border-2 border-neutral-700 overflow-hidden bg-black shadow-[0_0_70px_rgba(124,77,255,0.12)]"
+          className="relative w-full mx-auto rounded-xl border-2 border-neutral-700 overflow-hidden bg-black shadow-[0_0_70px_rgba(124,77,255,0.12)]"
           onPointerMove={handleMove}
           onPointerDown={handleClick}
-          style={{ touchAction: 'none' }}
+          style={{ touchAction: playing ? 'none' : 'pan-y', maxWidth: 'min(100%, max(320px, calc((100dvh - 210px) * 1.607)))' }}
         >
           <canvas ref={canvasRef} className="block w-full h-auto select-none" aria-label="Rune Bastion playfield" />
 
@@ -1611,18 +1640,18 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
           )}
 
           {status === 'menu' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 backdrop-blur-[2px] px-6 text-center">
+            <div className="absolute inset-0 flex flex-col items-center justify-start sm:justify-center gap-2 sm:gap-4 overflow-y-auto bg-black/80 px-3 py-2 text-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/games/rune-bastion/tower-mage.png" alt="" draggable={false} className="w-14 animate-pulse" />
-              <h2 className="font-mono text-3xl sm:text-4xl font-black tracking-tight text-neutral-50">
+              <img src="/games/rune-bastion/tower-mage.png" alt="" draggable={false} className="hidden sm:block w-14 animate-pulse" />
+              <h2 className="font-mono text-xl sm:text-4xl font-black tracking-tight text-neutral-50">
                 RUNE <span className="text-[#C09AFF]">BASTION</span>
               </h2>
               <p className="font-mono text-xs text-neutral-300 max-w-md leading-relaxed">
-                Goblins march. Golems smash. Dragons burn.
+                Wolves rush. Shamans heal. Dragons burn.
                 <br />
                 Raise mage, ranger and frost towers — nothing gets past the runes.
               </p>
-              <div className="flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 font-mono text-[11px] text-neutral-400">
+              <div className="hidden sm:flex flex-row items-center gap-3 font-mono text-[11px] text-neutral-400">
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">1 / 2 / 3 — pick tower</span>
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">CLICK PAD — build</span>
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">SPACE — call wave</span>
@@ -1652,7 +1681,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
           )}
 
           {status === 'gameover' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 backdrop-blur-[2px] text-center px-6">
+            <div className="absolute inset-0 flex flex-col items-center justify-start sm:justify-center gap-2 overflow-y-auto bg-black/90 text-center px-3 py-2">
               <h2 className="font-mono text-3xl sm:text-4xl font-black tracking-widest text-rose-400">THE BASTION HAS FALLEN</h2>
               {newBest && (
                 <span className="font-mono text-xs font-bold text-[#FFD23C] animate-pulse tracking-widest">★ NEW BEST SCORE ★</span>

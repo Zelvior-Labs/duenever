@@ -248,6 +248,7 @@ interface Rock {
 /** Foe AI modes: 0 = maneuver (hover/strafe/dodge), 1 = telegraph, 2 = committed dive */
 interface Foe {
   kind: 0 | 1; // 0 = gunner (aims & bursts), 1 = diver (lines up & charges)
+  elite: boolean;
   mode: 0 | 1 | 2;
   x: number;
   y: number;
@@ -285,6 +286,7 @@ interface Drop {
   y: number;
   vy: number;
   dead: boolean;
+  kind: 'repair' | 'rapid' | 'spread';
 }
 
 interface Pop {
@@ -310,6 +312,8 @@ interface World {
   wave: number;
   waveBannerT: number;
   waveTimer: number;
+  power: 'rapid' | 'spread' | null;
+  powerT: number;
   rockT: number;
   foeT: number;
   shake: number;
@@ -409,6 +413,8 @@ function createWorld(): World {
     wave: 1,
     waveBannerT: 2,
     waveTimer: WAVE_EVERY,
+    power: null,
+    powerT: 0,
     rockT: 0.6,
     foeT: 0,
     shake: 0,
@@ -511,17 +517,19 @@ function spawnFoe(w: World) {
   // Divers unlock after the early game and get more common over time
   const diverChance = w.elapsed < 25 ? 0 : Math.min(0.45, 0.18 + w.elapsed * 0.004);
   const kind: 0 | 1 = Math.random() < diverChance ? 1 : 0;
+  const elite = w.wave >= 3 && Math.random() < 0.22;
   const amp = 40 + Math.random() * 60;
   const baseX = amp + 30 + Math.random() * Math.max(60, W - amp * 2 - 60);
   w.foes.push({
     kind,
+    elite,
     mode: 0,
     x: baseX,
     y: -60,
     vx: 0,
     vy: kind === 0 ? 70 : 95,
     t: 0,
-    hp: kind === 0 ? 3 + Math.floor(w.elapsed / 45) : 2 + Math.floor(w.elapsed / 50),
+    hp: (kind === 0 ? 3 + Math.floor(w.elapsed / 45) : 2 + Math.floor(w.elapsed / 50)) * (elite ? 2 : 1),
     r: ENEMY_R,
     hit: 0,
     teleT: 0,
@@ -635,7 +643,7 @@ function updateFoes(w: World, dt: number, sfx: Sfx, opts: Opts) {
       } else {
         f.fireCd -= dt;
         if (f.fireCd <= 0 && f.y > 60 && f.y < H - 210) {
-          f.burst = 2 + (w.elapsed > 55 ? 1 : 0) + (w.elapsed > 120 ? 1 : 0);
+          f.burst = 2 + (w.elapsed > 55 ? 1 : 0) + (w.elapsed > 120 ? 1 : 0) + (f.elite ? 1 : 0);
           f.burstT = 0.26; // acts as telegraph before the first shot
           f.teleT = 0.26;
           sfx.telegraph();
@@ -719,7 +727,7 @@ function destroyRock(w: World, r: Rock, sfx: Sfx, opts: Opts, noScore = false) {
       });
     }
   } else if (!noScore && Math.random() < 0.12) {
-    w.drops.push({ x: r.x, y: r.y, vy: 95, dead: false });
+    w.drops.push({ x: r.x, y: r.y, vy: 95, dead: false, kind: Math.random() < 0.5 ? 'repair' : Math.random() < 0.5 ? 'rapid' : 'spread' });
   }
   r.hp = 0;
 }
@@ -727,10 +735,10 @@ function destroyRock(w: World, r: Rock, sfx: Sfx, opts: Opts, noScore = false) {
 function destroyFoe(w: World, f: Foe, sfx: Sfx, opts: Opts, noScore = false) {
   explode(w, f.x, f.y, 95, opts, sfx);
   if (!noScore) {
-    const pts = f.kind === 1 ? DIVER_SCORE : GUNNER_SCORE;
+    const pts = (f.kind === 1 ? DIVER_SCORE : GUNNER_SCORE) * (f.elite ? 2 : 1);
     w.score += pts;
     w.pops.push(pop(f.x, f.y, `+${pts}`));
-    if (Math.random() < 0.25) w.drops.push({ x: f.x, y: f.y, vy: 95, dead: false });
+    if (Math.random() < 0.25) w.drops.push({ x: f.x, y: f.y, vy: 95, dead: false, kind: Math.random() < 0.5 ? 'repair' : Math.random() < 0.5 ? 'rapid' : 'spread' });
   }
   f.hp = 0;
 }
@@ -843,13 +851,19 @@ function updateWorld(w: World, dt: number, io: IO) {
   p.y = clamp(p.y, 44, H - 30);
   p.tilt += (clamp(p.vx * 0.00075, -0.32, 0.32) - p.tilt) * Math.min(1, dt * 12);
 
+  if (w.powerT > 0) { w.powerT -= dt; if (w.powerT <= 0) w.power = null; }
+
   // ----- guns -----
   p.cool -= dt;
   p.burstCool -= dt;
   if (p.cool <= 0) {
-    p.cool = FIRE_COOLDOWN;
+    p.cool = w.power === 'rapid' ? FIRE_COOLDOWN * 0.55 : FIRE_COOLDOWN;
     w.bolts.push(mkBolt(p.x - 13, p.y - 20, p.vx * 0.18, -BULLET_SPEED, true));
     w.bolts.push(mkBolt(p.x + 13, p.y - 20, p.vx * 0.18, -BULLET_SPEED, true));
+    if (w.power === 'spread') {
+      w.bolts.push(mkBolt(p.x, p.y - 20, -170, -BULLET_SPEED, true));
+      w.bolts.push(mkBolt(p.x, p.y - 20, 170, -BULLET_SPEED, true));
+    }
     sfx.laser();
   }
   if (p.burstReq && p.burstCool <= 0) {
@@ -885,6 +899,12 @@ function updateWorld(w: World, dt: number, io: IO) {
   w.rockT -= dt;
   if (w.rockT <= 0) {
     spawnRock(w);
+    if (w.wave >= 2 && !opts.lowPerf && Math.random() < 0.12 && w.rocks.length < 24) {
+      spawnRock(w);
+      const a = w.rocks[w.rocks.length - 2], b = w.rocks[w.rocks.length - 1];
+      b.x = clamp(a.x + (a.x < W / 2 ? 85 : -85), 40, W - 40);
+      b.y = a.y - 60;
+    }
     w.rockT = Math.max(0.42, 1.25 - w.elapsed * 0.012) * (opts.lowPerf ? 1.3 : 1);
   }
   if (w.elapsed > 10) {
@@ -978,7 +998,11 @@ function updateWorld(w: World, dt: number, io: IO) {
   for (const d of w.drops) {
     if (!d.dead && hit(p.x, p.y, PLAYER_R + 6, d.x, d.y, 13)) {
       d.dead = true;
-      if (w.lives < MAX_LIVES) {
+      if (d.kind !== 'repair') {
+        w.power = d.kind;
+        w.powerT = 12;
+        w.pops.push(pop(d.x, d.y, d.kind === 'rapid' ? 'RAPID FIRE' : 'SPREAD FIRE'));
+      } else if (w.lives < MAX_LIVES) {
         w.lives += 1;
         w.pops.push(pop(d.x, d.y, '+1 LIFE'));
       } else {
@@ -1020,7 +1044,7 @@ function drawBolt(ctx: CanvasRenderingContext2D, b: Bolt) {
 
 function drawDrop(ctx: CanvasRenderingContext2D, d: Drop, time: number) {
   const r = 11 + Math.sin(time * 6 + d.x) * 1.2;
-  ctx.fillStyle = '#3EE06E';
+  ctx.fillStyle = d.kind === 'repair' ? '#3EE06E' : d.kind === 'rapid' ? '#FFB22C' : '#AD8CFF';
   ctx.beginPath();
   ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
   ctx.fill();
@@ -1028,8 +1052,13 @@ function drawDrop(ctx: CanvasRenderingContext2D, d: Drop, time: number) {
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(d.x - 1.8, d.y - 6, 3.6, 12);
-  ctx.fillRect(d.x - 6, d.y - 1.8, 12, 3.6);
+  if (d.kind === 'repair') {
+    ctx.fillRect(d.x - 1.8, d.y - 6, 3.6, 12);
+    ctx.fillRect(d.x - 6, d.y - 1.8, 12, 3.6);
+  } else {
+    ctx.font = `bold 14px ${MONO}`; ctx.textAlign = 'center';
+    ctx.fillText(d.kind === 'rapid' ? 'R' : 'S', d.x, d.y + 5);
+  }
 }
 
 function drawPlaceholderRocket(ctx: CanvasRenderingContext2D, x: number, y: number, tilt: number) {
@@ -1054,6 +1083,11 @@ function drawHud(ctx: CanvasRenderingContext2D, w: World, rocket?: HTMLImageElem
   ctx.font = `12px ${MONO}`;
   ctx.fillStyle = 'rgba(255,255,255,0.55)';
   ctx.fillText(`BEST ${String(Math.max(w.best, w.score)).padStart(6, '0')}`, 18, 50);
+
+  if (w.power) {
+    ctx.fillStyle = '#FFD23C';
+    ctx.fillText(`${w.power === 'rapid' ? 'RAPID' : 'SPREAD'} ${Math.ceil(w.powerT)}s`, 18, 67);
+  }
 
   // Lives as mini rocket icons
   for (let i = 0; i < w.lives; i++) {
@@ -1160,6 +1194,10 @@ function drawWorld(
     }
     ctx.restore();
 
+    if (f.elite) {
+      ctx.strokeStyle = '#FFD23C'; ctx.lineWidth = 2; ctx.beginPath();
+      ctx.arc(f.x, f.y, ENEMY_R + 5, 0, Math.PI * 2); ctx.stroke();
+    }
     if (f.teleT > 0) {
       ctx.globalAlpha = 0.45 + 0.45 * Math.sin(time * 24);
       ctx.strokeStyle = '#FF5A3C';
@@ -1451,18 +1489,36 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
     };
   };
 
+  const touchRef = useRef<{ id: number; x: number; y: number; px: number; py: number } | null>(null);
+
   const handlePointerMove = (e: React.PointerEvent) => {
     if (statusRef.current !== 'playing') return;
     const pt = toLogical(e.clientX, e.clientY);
     if (!pt) return;
-    pointerRef.current.x = pt.x;
-    pointerRef.current.y = pt.y;
+    const touch = touchRef.current;
+    if (e.pointerType === 'touch') {
+      if (!touch || touch.id !== e.pointerId) return;
+      pointerRef.current.x = touch.px + pt.x - touch.x;
+      pointerRef.current.y = touch.py + pt.y - touch.y;
+    } else {
+      pointerRef.current.x = pt.x;
+      pointerRef.current.y = pt.y;
+    }
     pointerRef.current.active = true;
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (statusRef.current !== 'playing') return;
     const pt = toLogical(e.clientX, e.clientY);
+    if (e.pointerType === 'touch' && pt && worldRef.current) {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      const player = worldRef.current.player;
+      touchRef.current = { id: e.pointerId, x: pt.x, y: pt.y, px: player.x, py: player.y };
+      pointerRef.current.active = true;
+      pointerRef.current.x = player.x;
+      pointerRef.current.y = player.y;
+      return;
+    }
     if (pt) {
       pointerRef.current.x = pt.x;
       pointerRef.current.y = pt.y;
@@ -1476,12 +1532,12 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/95 p-2 sm:p-6 font-sans"
+      className="fixed inset-0 z-[70] overflow-y-auto bg-black/95 p-2 sm:p-4 font-sans"
       role="dialog"
       aria-modal="true"
       aria-label="Rocket Rampage game"
     >
-      <div className="w-full max-w-5xl flex flex-col gap-3">
+      <div className="w-full max-w-5xl mx-auto min-h-full flex flex-col justify-center gap-2">
         {/* Top bar */}
         <div className="flex items-center justify-between font-mono text-xs">
           <div className="flex items-center gap-2 text-neutral-200 font-bold tracking-wide">
@@ -1521,10 +1577,12 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
 
         {/* Playfield */}
         <div
-          className="relative w-full rounded-xl border-2 border-neutral-700 overflow-hidden bg-black shadow-[0_0_70px_rgba(204,255,0,0.08)]"
+          className="relative w-full mx-auto rounded-xl border-2 border-neutral-700 overflow-hidden bg-black shadow-[0_0_70px_rgba(204,255,0,0.08)]"
           onPointerMove={handlePointerMove}
           onPointerDown={handlePointerDown}
-          style={{ touchAction: 'none' }}
+          onPointerUp={(e) => { if (touchRef.current?.id === e.pointerId) { touchRef.current = null; pointerRef.current.active = false; } }}
+          onPointerCancel={() => { touchRef.current = null; pointerRef.current.active = false; }}
+          style={{ touchAction: playing ? 'none' : 'pan-y', maxWidth: 'min(100%, max(320px, calc((100dvh - 210px) * 1.607)))' }}
         >
           <canvas ref={canvasRef} className="block w-full h-auto select-none" aria-label="Rocket Rampage playfield" />
 
@@ -1537,15 +1595,15 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
 
           {/* Menu overlay */}
           {status === 'menu' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 backdrop-blur-[2px] px-6 text-center">
+            <div className="absolute inset-0 flex flex-col items-center justify-start sm:justify-center gap-2 sm:gap-4 overflow-y-auto bg-black/80 px-3 py-2 text-center">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/games/rocket-rampage/rocket.png"
                 alt=""
                 draggable={false}
-                className="w-16 animate-pulse drop-shadow-[0_0_18px_rgba(204,255,0,0.35)]"
+                className="hidden sm:block w-16 animate-pulse drop-shadow-[0_0_18px_rgba(204,255,0,0.35)]"
               />
-              <h2 className="font-mono text-3xl sm:text-4xl font-black tracking-tight text-neutral-50">
+              <h2 className="font-mono text-xl sm:text-4xl font-black tracking-tight text-neutral-50">
                 ROCKET <span className="text-[color:var(--accent)]">RAMPAGE</span>
               </h2>
               <p className="font-mono text-xs text-neutral-300 max-w-md leading-relaxed">
@@ -1553,7 +1611,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
                 <br />
                 Cannons auto-fire — you just steer and survive.
               </p>
-              <div className="flex flex-col sm:flex-row items-center gap-1.5 sm:gap-3 font-mono text-[11px] text-neutral-400">
+              <div className="hidden sm:flex flex-row items-center gap-3 font-mono text-[11px] text-neutral-400">
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">MOUSE / WASD — steer</span>
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">SPACE / TAP — spread burst</span>
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">P / ESC — pause</span>
@@ -1588,7 +1646,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
 
           {/* Game over overlay */}
           {status === 'gameover' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 backdrop-blur-[2px] text-center px-6">
+            <div className="absolute inset-0 flex flex-col items-center justify-start sm:justify-center gap-2 overflow-y-auto bg-black/90 text-center px-3 py-2">
               <h2 className="font-mono text-3xl sm:text-4xl font-black tracking-widest text-rose-400">GAME OVER</h2>
               {newBest && (
                 <span className="font-mono text-xs font-bold text-[color:var(--accent)] animate-pulse tracking-widest">
@@ -1615,9 +1673,8 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
           )}
         </div>
 
-        <p className="text-[10px] font-mono text-neutral-500 text-center">
-          Mouse or WASD / arrows to steer · cannons auto-fire · Space / tap = spread burst · P = pause
-        </p>
+        {playing && <button type="button" onClick={() => { if (worldRef.current) worldRef.current.player.burstReq = true; }} className="sm:hidden min-h-12 w-full rounded-lg bg-[var(--accent)] text-black font-mono font-bold">FIRE SPREAD BURST</button>}
+        <p className="text-[10px] font-mono text-neutral-500 text-center">Drag to steer on touch · burst button fires spread · mouse / WASD and Space on desktop · collect R or S power-ups</p>
       </div>
     </div>
   );

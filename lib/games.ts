@@ -35,12 +35,12 @@ export const GAMES: Game[] = [
     slug: 'rocket-rampage',
     tagline: 'Shred asteroids and outgun alien fighters in deep space.',
     description:
-      'Full-throttle arcade space shooter. Pilot the VF-X Rocket through a hostile asteroid belt — twin auto-cannons shred rocks (large ones split!), alien fighters dive in with aimed return fire, and rare repair kits keep you alive. Waves escalate until you break. Three lives, one high score.',
+      'Pilot the VF-X Rocket through asteroid formations and smarter fighters. Collect repair kits, rapid-fire and spread-fire upgrades, and watch for gold-ringed elite enemies. Waves escalate until you break. Three lives, one high score.',
     category: 'Reflex',
     tags: ['Arcade', 'Shooter', 'High Score', 'Single Player'],
     controls: [
       'Mouse / touch or WASD / Arrows to steer',
-      'Cannons auto-fire · Space / tap = spread burst',
+      'Cannons auto-fire · Space / burst button = spread burst',
       'P or Esc to pause',
     ],
     featured: true,
@@ -57,12 +57,12 @@ export const GAMES: Game[] = [
     slug: 'rune-bastion',
     tagline: 'Hold the rune bastion against goblin hordes, golems and dragons.',
     description:
-      'Fantasy tower defense on a torch-lit stone causeway. Build Arcane Spires, Ranger Posts and Frost Keeps on rune pads, upgrade them through three levels, and call waves early for bonus gold. Goblins swarm, stone golems shrug off arrows, and a dragon boss arrives every eighth wave. If the runes fall, the realm falls.',
+      'Defend the causeway with Arcane Spires, Ranger Posts and Frost Keeps. Wolves rush, shamans heal their allies, and dragons attack every eighth wave. Swift and armored waves change the challenge; upgrade towers and call waves early for bonus gold.',
     category: 'Strategy' as GameCategory,
     tags: ['Tower Defense', 'Fantasy', 'Waves', 'Single Player'],
     controls: [
-      '1 / 2 / 3 pick tower · click a rune pad to build',
-      'Click a tower to upgrade (U) or sell (S)',
+      'Pick a tower, then tap or click a rune pad to build · 1 / 2 / 3 also select',
+      'Tap or click a tower to upgrade or sell · U / S on keyboard',
       'Space / N calls the next wave early for bonus gold · P pause',
     ],
     playable: true,
