@@ -1,6 +1,6 @@
 'use client';
 
-import { chainTargets, selectTarget, repairBastion, waveLabel, REPAIR_COST, chooseMastery, masteryStats, waveClearBonus, MASTERY_COST, type Mastery, type TargetMode } from '@/lib/rune-bastion';
+import { chainTargets, selectTarget, repairBastion, waveLabel, REPAIR_COST, chooseMastery, masteryStats, waveClearBonus, MASTERY_COST, splashProfile, projectileArrives, type Mastery, type TargetMode } from '@/lib/rune-bastion';
 import { canUsePulse } from '@/lib/arcade-upgrades';
 import { SOUND_KEY } from '@/lib/game-audio';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -60,13 +60,14 @@ const PADS: ReadonlyArray<readonly [number, number]> = [
   [110, 430],
 ];
 
-type TowerKind = 0 | 1 | 2 | 3; // mage | ranger | frost | storm
+type TowerKind = 0 | 1 | 2 | 3 | 4; // mage | ranger | frost | storm | cannon
 
 const TOWERS: Record<TowerKind, { name: string; cost: number; dmg: number; range: number; rate: number; blurb: string }> = {
   0: { name: 'Arcane Spire', cost: 70, dmg: 24, range: 132, rate: 0.9, blurb: 'Homing bolts' },
   1: { name: 'Ranger Post', cost: 50, dmg: 10, range: 152, rate: 0.34, blurb: 'Rapid arrows' },
   2: { name: 'Frost Keep', cost: 90, dmg: 8, range: 122, rate: 1.1, blurb: 'AoE chill 45%' },
   3: { name: 'Storm Obelisk', cost: 110, dmg: 22, range: 140, rate: 1.15, blurb: 'Chains to 3 foes' },
+  4: { name: 'Ember Cannon', cost: 120, dmg: 36, range: 155, rate: 1.5, blurb: 'Wide splash' },
 };
 
 interface Tower {
@@ -184,6 +185,7 @@ const ASSET_SRC = {
   ranger: '/games/rune-bastion/tower-ranger.png',
   frost: '/games/rune-bastion/tower-frost.png',
   storm: '/games/rune-bastion/tower-storm.png',
+  cannon: '/games/rune-bastion/tower-cannon.png',
   goblin: '/games/rune-bastion/enemy-goblin.png',
   brute: '/games/rune-bastion/enemy-brute.png',
   dragon: '/games/rune-bastion/enemy-dragon.png',
@@ -661,12 +663,12 @@ function updateWorld(w: World, dt: number, sfx: Sfx, opts: Opts) {
       });
       sfx.mage();
     } else {
-      // Frost shard — lobbed at the target's current position, AoE on arrival
+      // Lob frost or cannon shots at the target's current position.
       const a = Math.atan2(target.y - py, target.x - px);
       w.projs.push({
-        kind: 2,
-        x: px + Math.cos(a) * 18,
-        y: py + Math.sin(a) * 18,
+        kind: tw.kind,
+        x: px,
+        y: py,
         vx: Math.cos(a) * 300,
         vy: Math.sin(a) * 300,
         speed: 300,
@@ -690,22 +692,24 @@ function updateWorld(w: World, dt: number, sfx: Sfx, opts: Opts) {
       pr.vx = (dx / d) * pr.speed;
       pr.vy = (dy / d) * pr.speed;
     }
+    const remaining = Math.hypot(pr.x - pr.tx, pr.y - pr.ty);
     pr.x += pr.vx * dt;
     pr.y += pr.vy * dt;
 
-    if (pr.kind === 2) {
-      // Frost shard detonates at its landing point
-      if (Math.hypot(pr.x - pr.tx, pr.y - pr.ty) < 14) {
+    if (pr.kind === 2 || pr.kind === 4) {
+      // Check the traveled segment so faster frames cannot skip the destination.
+      if (projectileArrives(remaining, pr.speed, dt)) {
+        const profile = splashProfile(pr.kind === 2 ? 'frost' : 'cannon');
         w.blasts.push({
           x: pr.tx,
           y: pr.ty,
           r: 0,
-          maxR: 58,
+          maxR: profile.radius,
           life: 0.32,
           maxLife: 0.32,
-          color: '#8FD8FF',
+          color: profile.color,
           dmg: pr.dmg,
-          slow: true,
+          slow: profile.slow,
           hitDone: false,
         });
         pr.dead = true;
@@ -746,7 +750,7 @@ function updateWorld(w: World, dt: number, sfx: Sfx, opts: Opts) {
         if (e.hp <= 0) continue;
         if (Math.hypot(e.x - b.x, e.y - b.y) < b.maxR) {
           damageEnemy(w, e, b.dmg, opts, sfx);
-          e.slowT = Math.max(e.slowT, 2);
+          if (b.slow) e.slowT = Math.max(e.slowT, 2);
         }
       }
     }
@@ -989,7 +993,7 @@ function drawTowerAt(
   selected: boolean,
   opts: Opts,
 ) {
-  const key = kind === 0 ? 'mage' : kind === 1 ? 'ranger' : kind === 2 ? 'frost' : 'storm';
+  const key = kind === 0 ? 'mage' : kind === 1 ? 'ranger' : kind === 2 ? 'frost' : kind === 3 ? 'storm' : 'cannon';
   const img = assets[key];
   const size = 46;
   ctx.save();
@@ -1174,7 +1178,7 @@ function drawWorld(
       ctx.save();
       ctx.translate(pr.x, pr.y);
       ctx.rotate(w.time * 9);
-      ctx.fillStyle = '#8FD8FF';
+      ctx.fillStyle = pr.kind === 4 ? '#FFAB55' : '#8FD8FF';
       ctx.fillRect(-4.5, -4.5, 9, 9);
       ctx.restore();
     }
@@ -1184,13 +1188,13 @@ function drawWorld(
   for (const b of w.blasts) {
     const a = b.life / b.maxLife;
     ctx.globalAlpha = a * 0.75;
-    ctx.strokeStyle = '#8FD8FF';
+    ctx.strokeStyle = b.color;
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
     ctx.stroke();
     ctx.globalAlpha = a * 0.22;
-    ctx.fillStyle = '#8FD8FF';
+    ctx.fillStyle = b.color;
     ctx.beginPath();
     ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
     ctx.fill();
@@ -1564,6 +1568,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
         if (e.code === 'Digit2') pickTower(1);
         if (e.code === 'Digit3') pickTower(2);
         if (e.code === 'Digit4') pickTower(3);
+        if (e.code === 'Digit5') pickTower(4);
         if (e.code === 'KeyU') upgradeSelected();
         if (e.code === 'KeyS' && !e.ctrlKey && !e.metaKey) sellSelected();
         if (e.code === 'Space' || e.code === 'KeyN') {
@@ -1725,10 +1730,10 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
               <p className="font-mono text-xs text-neutral-300 max-w-md leading-relaxed">
                 Wolves rush. Shamans heal. Dragons burn.
                 <br />
-                Build towers, specialize level 2 towers, earn flawless wave gold, repair the bastion and unleash a frost pulse.
+                Build towers including the new splash-damage Ember Cannon, specialize level 2 towers and earn flawless wave gold.
               </p>
               <div className="hidden sm:flex flex-row items-center gap-3 font-mono text-[11px] text-neutral-400">
-                <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">1 / 2 / 3 / 4 — pick tower</span>
+                <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">1 / 2 / 3 / 4 / 5 — pick tower</span>
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">CLICK PAD — build</span>
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">SPACE — call wave</span>
               </div>
@@ -1786,10 +1791,10 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
 
         {/* Build / command bar */}
         <div className="flex shrink-0 flex-wrap items-stretch justify-center gap-1 bg-neutral-950 p-1 font-mono text-xs">
-          {([0, 1, 2, 3] as TowerKind[]).map((k) => {
+          {([0, 1, 2, 3, 4] as TowerKind[]).map((k) => {
             const t = TOWERS[k];
             const selected = choice === k;
-            const img = k === 0 ? '/games/rune-bastion/tower-mage.png' : k === 1 ? '/games/rune-bastion/tower-ranger.png' : k === 2 ? '/games/rune-bastion/tower-frost.png' : '/games/rune-bastion/tower-storm.png';
+            const img = k === 0 ? '/games/rune-bastion/tower-mage.png' : k === 1 ? '/games/rune-bastion/tower-ranger.png' : k === 2 ? '/games/rune-bastion/tower-frost.png' : k === 3 ? '/games/rune-bastion/tower-storm.png' : '/games/rune-bastion/tower-cannon.png';
             return (
               <button
                 key={k}
@@ -1844,7 +1849,7 @@ export function RuneBastionGame({ onBack }: { onBack: () => void }) {
         </div>
 
         <p className="hidden sm:block text-[10px] font-mono text-neutral-500 text-center">
-          Pick a tower (1/2/3/4) → click a rune pad to build · click a tower to upgrade/sell (U/S) · Space calls the next wave early for bonus gold · P pause
+          Pick a tower (1/2/3/4/5) → click a rune pad to build · click a tower to upgrade/sell (U/S) · Space calls the next wave early for bonus gold · P pause
         </p>
       </div>
     </div>

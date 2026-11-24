@@ -34,11 +34,22 @@ export function canMove(grid: Grid): boolean {
   return grid.some((v, i) => v === 0 || (i % 4 < 3 && v === grid[i + 1]) || (i < 12 && v === grid[i + 4]));
 }
 
-/** Suggest a legal move, preferring immediate merges; never changes the board. */
+/** Prefer immediate merges, breaking ties by expected options after the next tile. */
 export function suggestMove(grid: Grid): Direction | null {
   const directions: Direction[] = ['up', 'left', 'down', 'right'];
   const candidates = directions.map(direction => ({ direction, ...slide(grid, direction) })).filter(move => move.changed);
-  candidates.sort((a, b) => b.score - a.score);
+  const futureOptions = (board: Grid) => {
+    const empty = board.flatMap((value, i) => value === 0 ? [i] : []);
+    if (!empty.length) return 0;
+    let total = 0;
+    for (const index of empty) for (const [value, probability] of [[2, .9], [4, .1]]) {
+      const spawned = board.slice(); spawned[index] = value;
+      const moves = directions.map(direction => slide(spawned, direction)).filter(move => move.changed);
+      total += probability * (moves.length + Math.max(0, ...moves.map(move => move.score)) / 100);
+    }
+    return total / empty.length;
+  };
+  candidates.sort((a, b) => b.score - a.score || futureOptions(b.grid) - futureOptions(a.grid));
   return candidates[0]?.direction ?? null;
 }
 
