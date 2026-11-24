@@ -3,6 +3,7 @@
 import { rocketCombo, clearHostileFire } from '@/lib/arcade-features';
 import { absorbHit, chooseRocketDrop, type RocketDrop } from '@/lib/arcade-upgrades';
 import { SOUND_KEY } from '@/lib/game-audio';
+import { StoryNotes } from './StoryNotes';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Pause, Play, Rocket as RocketIcon, Trophy, Volume2, VolumeX, X } from 'lucide-react';
 import { getStoredSettings } from '@/lib/storage';
@@ -1334,6 +1335,8 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
   const [newBest, setNewBest] = useState(false);
   const [muted, setMuted] = useState(false);
   const [empReady, setEmpReady] = useState(false);
+  const [storyWave, setStoryWave] = useState(1);
+  const storyWaveRef = useRef(1);
   const empMirror = useRef(false);
 
   const applyStatus = useCallback((s: Status) => {
@@ -1350,6 +1353,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
     sfxRef.current?.ensure();
     worldRef.current = createWorld();
     empMirror.current = false; setEmpReady(false);
+    storyWaveRef.current = 1; setStoryWave(1);
     setFinalScore(0);
     setNewBest(false);
     applyStatus('playing');
@@ -1483,6 +1487,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
       if (!w) return;
       if (statusRef.current === 'playing') {
         updateWorld(w, dt, io);
+        if (w.wave !== storyWaveRef.current) { storyWaveRef.current = w.wave; setStoryWave(w.wave); }
         if (w.emp !== empMirror.current) { empMirror.current = w.emp; setEmpReady(w.emp); }
         if (w.over && statusRef.current === 'playing') gameOverRef.current();
       }
@@ -1510,6 +1515,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
     const BLOCK = new Set(['Space', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
     const down = (e: KeyboardEvent) => {
       const st = statusRef.current;
+      if (st === 'paused' && e.target instanceof HTMLElement && e.target.closest('summary') && (e.code === 'Space' || e.code.startsWith('Arrow'))) return;
       if (st === 'playing' || st === 'paused') {
         if (BLOCK.has(e.code)) e.preventDefault();
         keysRef.current.add(e.code);
@@ -1673,6 +1679,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
                 <br />
                 Chain takedowns within four seconds for up to 4× points. Cannons auto-fire.
               </p>
+              <StoryNotes game="rocket-rampage" />
               <div className="hidden sm:flex flex-row items-center gap-3 font-mono text-[11px] text-neutral-400">
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">MOUSE / WASD — steer</span>
                 <span className="px-2 py-1 bg-neutral-900/80 border border-neutral-700 rounded">SPACE / TAP — spread burst</span>
@@ -1694,7 +1701,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
 
           {/* Paused overlay */}
           {status === 'paused' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-black/70 backdrop-blur-[2px] text-center">
+            <div className="absolute inset-0 flex flex-col items-center justify-start sm:justify-center gap-4 overflow-y-auto bg-black/70 p-4 backdrop-blur-[2px] text-center">
               <h2 className="font-mono text-3xl font-black tracking-widest text-neutral-100">PAUSED</h2>
               <button
                 onClick={togglePause}
@@ -1702,6 +1709,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
               >
                 ▶ Resume
               </button>
+              <StoryNotes game="rocket-rampage" progress={storyWave} />
               <p className="font-mono text-[11px] text-neutral-400">P / Esc to resume</p>
             </div>
           )}
@@ -1717,6 +1725,7 @@ export function RocketRampageGame({ onBack }: { onBack: () => void }) {
               )}
               <div className="font-mono text-5xl sm:text-6xl font-black text-neutral-50 my-1">{finalScore}</div>
               <div className="font-mono text-xs text-neutral-400">best {Math.max(best, finalScore)}</div>
+              <StoryNotes game="rocket-rampage" progress={storyWave} />
               <div className="flex items-center gap-3 mt-3">
                 <button
                   onClick={startGame}
